@@ -8,21 +8,31 @@ The controller also includes **walk-assist mode**, **configuration menu**, and *
 
 ## 🔧 Features
 
-- Adjustable **assist levels** (0 to N).
-- Configurable **min RPM** to activate assist.
-- Smooth **ramp-up logic** for assist power.
-- **Walk assist mode** with delay and ramp.
-- Adjustable **PWM output voltage range** (min/max voltage simulation).
-- EEPROM storage for all settings.
-- **LCD interface with buttons** for configuration.
+- Adjustable **assist levels** (0 to N).  
+- Configurable **min RPM** to activate assist.  
+- Smooth **ramp-up logic** for assist power.  
+- **Walk assist mode** with delay and ramp.  
+- Adjustable **PWM output voltage range** (min/max voltage simulation).  
+- EEPROM storage for all settings.  
+- **LCD interface with buttons** for configuration.  
+
+---
+
+## 🧪 How It Works
+
+- The PAS sensor generates pulses when you pedal. The system samples these pulses at regular intervals to estimate **RPM**.
+- If RPM is above a configured **minimum RPM**, the assist becomes active and **ramps up** to a power level based on the selected assist level.
+- The assist level can be **increased or decreased** using the **Up** and **Down** buttons. A higher level results in more power delivered to the motor (stronger assist).
+- If **Walk Assist** is triggered (pedal is idle, level = 0, walk button pressed), assist power ramps to a fixed walk value.
+- A **PWM signal** is generated on pin D9. The duty cycle maps to a voltage range (e.g., 1V–4.2V), simulating throttle output.
 
 ---
 
 ## 🧰 Hardware Requirements
 
-- **Arduino Uno / Nano** or compatible board
-- **I2C 16x2 LCD display** (e.g. based on PCF8574)
-- **PAS sensor** (pedal cadence sensor)
+- **Arduino Uno / Nano** or compatible board  
+- **I2C 16x2 LCD display** (e.g. based on PCF8574)  
+- **PAS sensor** (pedal cadence sensor)  
 - 5x push-buttons:
   - Assist Up
   - Assist Down
@@ -31,20 +41,21 @@ The controller also includes **walk-assist mode**, **configuration menu**, and *
   - Set button (long press to enter settings)
 - Optional: pull-up resistors (if not using `INPUT_PULLUP`)
 - **PWM Output** (D9 by default) connected to the **e-bike controller’s throttle input**
+- **RC low-pass filter** on PWM output (explained below)
 
 ---
 
 ## 🔌 Pinout
 
-| Signal            | Arduino Pin |
-|------------------|-------------|
-| PAS Input        | D2 (Interrupt) |
-| Assist Up        | D3          |
-| Assist Down      | D4          |
-| Set Button       | D5          |
-| Walk Assist      | D6          |
-| PWM Output       | D9 (analogWrite) |
-| I2C LCD (SDA/SCL)| A4/A5 (Uno/Nano default) |
+| Signal            | Arduino Pin       |
+|------------------|-------------------|
+| PAS Input        | D2 (Interrupt)     |
+| Assist Up        | D3                |
+| Assist Down      | D4                |
+| Set Button       | D5                |
+| Walk Assist      | D6                |
+| PWM Output       | D9 (analogWrite)  |
+| I2C LCD (SDA/SCL)| A4/A5 (Uno/Nano)  |
 
 ---
 
@@ -54,53 +65,69 @@ Enter settings by **holding the SET button for ~1.5s**.
 
 You can configure the following options using the **Up/Down buttons**, and go to the next setting using the **Set button**:
 
-1. Number of PAS magnets
-2. Walk assist power (%)
-3. Walk assist delay (ms)
-4. Minimum RPM for assist activation
-5. Ramp time for assist (ms)
-6. Number of assist levels
-7. RPM sampling interval (ms)
-8. **PWM minimum voltage**
-9. **PWM maximum voltage**
+1. Number of PAS magnets  
+2. Walk assist power (%)  
+3. Walk assist delay (ms)  
+4. Minimum RPM for assist activation  
+5. Ramp time for assist (ms)  
+6. Number of assist levels  
+7. RPM sampling interval (ms)  
+8. **PWM minimum voltage**  
+9. **PWM maximum voltage**  
 
 All settings are saved automatically to **EEPROM** when exiting the settings menu.
 
 ---
 
-## 🧪 How It Works
+### 🔻 RC Low-Pass Filter Requirement
 
-- The PAS sensor generates pulses when you pedal. The system samples these pulses at regular intervals to estimate **RPM**.
-- If RPM is above a configured **minimum RPM**, the assist becomes active and **ramps up** to a power level based on the selected assist level.
-- If **Walk Assist** is triggered (pedal is idle, level = 0, walk button pressed), assist power ramps to a fixed walk value.
-- A **PWM signal** is generated on pin D9. The duty cycle maps to a voltage range (e.g., 1V–4.2V), simulating throttle output.
+Most e-bike controllers expect a **smooth analog voltage** on the throttle input, not a fast-switching PWM signal. Therefore, it’s necessary to **add an RC low-pass filter** to the PWM output. This filter converts the PWM into a stable DC-like voltage proportional to the duty cycle.
+
+**RC Filter Schematic:**
+
+![RC Filter](attachment:file_000000001570620ab256241f3a9f1549)
+
+This filter consists of:
+- Resistor (R) in series with PWM output  
+- Capacitor (C) to ground from the output side  
+Together they form a **first-order low-pass filter**.
 
 ---
 
-## 💾 EEPROM Addresses (for reference)
+### ⚙️ How to Choose R and C
 
-| Setting            | EEPROM Address |
-|-------------------|----------------|
-| PAS magnets        | 0              |
-| Walk assist power  | 2              |
-| Walk delay         | 3              |
-| Min RPM            | 7              |
-| Ramp time          | 9              |
-| Assist levels      | 13             |
-| Sample interval    | 14             |
-| PWM Min voltage ×100 | 16           |
-| PWM Max voltage ×100 | 18           |
+To select proper values for R and C, use the formula for the cutoff frequency:
+
+```
+f_c = 1 / (2πRC)
+```
+
+Where:
+- `f_c` = filter cutoff frequency (Hz)  
+- `R` = resistance in ohms (Ω), e.g. 1kΩ  
+- `C` = capacitance in farads (F), e.g. 1µF
+
+Example:
+- `R = 1 kΩ`
+- `C = 1 µF`
+- Then:
+
+```
+f_c = 1 / (2 * π * 1000 * 0.000001) ≈ 159.15 Hz
+```
+
+This value is low enough to smooth a standard 490 Hz PWM from Arduino, while remaining responsive. You can increase **R** or **C** for better filtering (slower response), or reduce them for quicker voltage transitions (less filtering).
 
 ---
 
 ## 🛠️ Setup Instructions
 
-1. Wire the system as shown in the pinout section.
-2. Upload the sketch to your Arduino.
-3. Power the system and observe LCD messages.
-4. Hold the **SET button** to enter the settings menu.
-5. Adjust parameters as needed.
-6. Connect PWM output (D9) to the **e-bike controller’s throttle input**.
+1. Wire the system as shown in the pinout section.  
+2. Upload the sketch to your Arduino.  
+3. Power the system and observe LCD messages.  
+4. Hold the **SET button** to enter the settings menu.  
+5. Adjust parameters as needed.  
+6. Connect PWM output (D9) to the **e-bike controller’s throttle input** through the **RC filter**.
 
 ---
 
@@ -112,7 +139,7 @@ Coming soon: schematic and image of real-world connection.
 
 ## ⚠️ Disclaimer
 
-- This is an open-source hobby project. Use at your own risk.
+- This is an open-source hobby project. Use at your own risk.  
 - Be cautious when interfacing with e-bike controllers — improper PWM voltage may damage components.
 
 ---
