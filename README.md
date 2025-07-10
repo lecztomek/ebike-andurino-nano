@@ -24,7 +24,8 @@ The controller also includes **walk-assist mode**, **configuration menu**, and *
 - If RPM is above a configured **minimum RPM**, the assist becomes active and **ramps up** to a power level based on the selected assist level.
 - The assist level can be **increased or decreased** using the **Up** and **Down** buttons. A higher level results in more power delivered to the motor (stronger assist).
 - If **Walk Assist** is triggered (pedal is idle, level = 0, walk button pressed), assist power ramps to a fixed walk value.
-- A **PWM signal** is generated on pin D9. The duty cycle maps to a voltage range (e.g., 1V–4.2V), simulating throttle output.
+- A **PWM signal** is generated on pin D9. The duty cycle maps to a voltage range (e.g., 1V–4.2V), simulating throttle output to the controller.
+- ⚠️ **Setting the correct number of magnets in the PAS sensor** is crucial — wrong value will cause inaccurate RPM detection and poor assist behavior.
 
 ---
 
@@ -76,6 +77,22 @@ You can configure the following options using the **Up/Down buttons**, and go to
 9. **PWM maximum voltage**  
 
 All settings are saved automatically to **EEPROM** when exiting the settings menu.
+
+---
+
+### 📏 How to Check Throttle Voltage Range
+
+To correctly simulate a throttle signal, you must match the **PWM voltage range** to what your e-bike controller expects (e.g., 1.0V to 4.2V). To find this range:
+
+1. Disconnect the throttle from the controller.
+2. Use a multimeter (in DC mode) to measure voltage:
+   - **Ground** (black probe) → GND wire
+   - **Positive** (red probe) → Signal wire from throttle
+3. Turn throttle to **minimum** → note voltage (e.g., 1.0V)
+4. Turn throttle to **maximum** → note voltage (e.g., 4.2V)
+5. Enter these values in the PAS controller settings menu as **PWM Min/Max Voltage**
+
+This ensures the e-bike controller interprets the PWM output correctly.
 
 ---
 
