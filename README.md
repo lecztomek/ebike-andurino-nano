@@ -102,7 +102,7 @@ Most e-bike controllers expect a **smooth analog voltage** on the throttle input
 
 **RC Filter Schematic:**
 
-![RC Filter](attachment:file_000000001570620ab256241f3a9f1549)
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/e6578420-3142-426e-a89f-84a18f9df05c" />
 
 This filter consists of:
 - Resistor (R) in series with PWM output  
