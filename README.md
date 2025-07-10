@@ -92,7 +92,7 @@ This section shows how the PAS, throttle, and brake sensor were originally conne
 
 ## ⚙️ Configuration Menu
 
-Enter settings by **holding the SET button for ~1.5s**.
+Enter/exit settings by **holding the SET button for ~1.5s**.
 
 You can configure the following options using the **Up/Down buttons**, and go to the next setting using the **Set button**:
 
