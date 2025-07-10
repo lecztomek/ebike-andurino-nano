@@ -13,7 +13,7 @@ const byte bufferSize = 20;                 // Number of samples in the sliding 
 byte pulseBuffer[bufferSize];               // Circular buffer holding recent pulse states (1 = pulse, 0 = no pulse)
 byte bufferIndex = 0;
 
-const unsigned long sampleInterval = 50;    // Sampling period in milliseconds
+unsigned long sampleInterval = 50;    // Sampling period in milliseconds
 unsigned long lastSampleTime = 0;
 
 volatile bool pulseDetected = false;        // Flag set by interrupt if a PAS pulse was detected
@@ -53,7 +53,7 @@ bool lastInSettingsMode = false;
 byte currentSettingIndex = 0;
 unsigned long lastSetButtonPress = 0;
 const unsigned long longPressTime = 1500;
-const byte totalSettings = 6;
+const byte totalSettings = 7;
 // ----------------------
 
 void saveSettingsToEEPROM() {
@@ -63,15 +63,30 @@ void saveSettingsToEEPROM() {
   EEPROM.put(7, minRPM);
   EEPROM.put(9, rampTime);
   EEPROM.put(13, numAssistLevels);
+  EEPROM.put(14, sampleInterval); 
 }
 
 void loadSettingsFromEEPROM() {
   EEPROM.get(0, pulsesPerRevolution);
+  if (pulsesPerRevolution < 1 || pulsesPerRevolution > 32) pulsesPerRevolution = 8;
+
   EEPROM.get(2, walkingAssistPower);
+  if (walkingAssistPower < 1 || walkingAssistPower > 100) walkingAssistPower = 10;
+
   EEPROM.get(3, walkingDelay);
+  if (walkingDelay < 0 || walkingDelay > 10000) walkingDelay = 2000;
+
   EEPROM.get(7, minRPM);
+  if (minRPM < 1 || minRPM > 150) minRPM = 31;
+
   EEPROM.get(9, rampTime);
+  if (rampTime < 200 || rampTime > 5000) rampTime = 1000;
+
   EEPROM.get(13, numAssistLevels);
+  if (numAssistLevels < 1 || numAssistLevels > 20) numAssistLevels = 7;
+
+  EEPROM.get(14, sampleInterval);
+  if (sampleInterval < 10 || sampleInterval > 500) sampleInterval = 50;
 }
 
 byte getAssistPercentage(byte level) {
@@ -356,6 +371,10 @@ void changeSetting(bool increase) {
       if (increase && numAssistLevels < 20) numAssistLevels++;
       else if (!increase && numAssistLevels > 1) numAssistLevels--;
       break;
+    case 6: 
+      if (increase && sampleInterval < 500) sampleInterval += 10;
+      else if (!increase && sampleInterval >= 20) sampleInterval -= 10;
+      break;
   }
 }
 
@@ -396,6 +415,12 @@ void showCurrentSetting() {
       lcd.print("Asst Levels:    ");
       lcd.setCursor(0, 1);
       lcd.print(String(numAssistLevels));
+      lcd.print("    ");
+      break;
+    case 6:
+      lcd.print("RPMIntval [ms]: ");
+      lcd.setCursor(0, 1);
+      lcd.print(String(sampleInterval));
       lcd.print("    ");
       break;
   }
