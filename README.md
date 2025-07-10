@@ -29,6 +29,47 @@ The controller also includes **walk-assist mode**, **configuration menu**, and *
 
 ---
 
+🔁 System Integration Overview
+This section shows how the PAS, throttle, and brake sensor were originally connected to the e-bike controller — and how they are connected after integrating the Arduino PAS Controller.
+
+[1] Original setup (before modification):
+
+   +---------+          +-------------+          +------------+
+   |   PAS   | --------> |             |          |            |
+   +---------+          |             |          |            |
+                        |             | --------> |  Motor     |
+   +---------+          | Controller  |          |  Driver    |
+   | Throttle| --------> |             |          |            |
+   +---------+          |             |          |            |
+   +---------+          +-------------+          +------------+
+   |  Brake  | ------->
+   | Sensor  |
+   +---------+
+
+
+[2] Modified setup (with Arduino PAS Controller):
+
+   +---------+                 +---------------------+        
+   |   PAS   | --------------> |                     |        
+   +---------+                 |   Arduino PAS       |        
+                               |   Controller        |        
+                               |   (simulates        |        
+                               |   throttle signal)  |        
+                               +----------+----------+        
+                                          |                   
+                                          v                   
+                                   +-------------+            +------------+
+                                   |             | ---------> |            |
+                                   |  Controller |            |  Motor     |
+                                   |   (Old)     |            |  Driver    |
+   +---------+                    +-------------+            +------------+
+   |  Brake  | ------------------------->|
+   | Sensor  |                           |
+   +---------+                           |
+
+        (Original throttle is replaced by PWM output from Arduino)
+
+
 ## 🧰 Hardware Requirements
 
 - **Arduino Uno / Nano** or compatible board  
