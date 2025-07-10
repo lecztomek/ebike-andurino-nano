@@ -80,6 +80,10 @@ All settings are saved automatically to **EEPROM** when exiting the settings men
 
 ---
 
+## 🔻 RC Low-Pass Filter (Required)
+
+Most e-bike controllers expect a **smooth analog voltage**, not a PWM signal. A **low-pass RC filter** is required to convert the PWM output into a stable voltage that mimics the throttle.
+
 ### 📏 How to Check Throttle Voltage Range
 
 To correctly simulate a throttle signal, you must match the **PWM voltage range** to what your e-bike controller expects (e.g., 1.0V to 4.2V). To find this range:
@@ -96,9 +100,6 @@ This ensures the e-bike controller interprets the PWM output correctly.
 
 ---
 
-### 🔻 RC Low-Pass Filter Requirement
-
-Most e-bike controllers expect a **smooth analog voltage** on the throttle input, not a fast-switching PWM signal. Therefore, it’s necessary to **add an RC low-pass filter** to the PWM output. This filter converts the PWM into a stable DC-like voltage proportional to the duty cycle.
 
 **RC Filter Schematic:**
 
@@ -111,31 +112,34 @@ Together they form a **first-order low-pass filter**.
 
 ---
 
-### ⚙️ How to Choose R and C
+### ✅ Recommended Starting Values
 
-To select proper values for R and C, use the formula for the cutoff frequency:
+```
+Resistor:     R = 1 kΩ  
+Capacitor:    C = 1 µF
+```
+
+This gives a cutoff frequency of about 159 Hz, which works well for Arduino PWM (490 Hz).
+
+### 🔧 Filter Formula:
 
 ```
 f_c = 1 / (2πRC)
 ```
 
-Where:
-- `f_c` = filter cutoff frequency (Hz)  
-- `R` = resistance in ohms (Ω), e.g. 1kΩ  
-- `C` = capacitance in farads (F), e.g. 1µF
-
 Example:
-- `R = 1 kΩ`
-- `C = 1 µF`
-- Then:
-
 ```
-f_c = 1 / (2 * π * 1000 * 0.000001) ≈ 159.15 Hz
+f_c = 1 / (2 × π × 1000 × 0.000001) ≈ 159 Hz
 ```
 
-This value is low enough to smooth a standard 490 Hz PWM from Arduino, while remaining responsive. You can increase **R** or **C** for better filtering (slower response), or reduce them for quicker voltage transitions (less filtering).
+### 💡 Alternate values:
 
----
+| R (Ω) | C (µF) | Cutoff (Hz) | Notes                    |
+|-------|--------|--------------|---------------------------|
+| 1k    | 1.0    | ~159 Hz      | Good balance (default)    |
+| 1k    | 2.2    | ~72 Hz       | Smoother, but slower      |
+| 1k    | 0.47   | ~338 Hz      | Faster, more ripple       |
+
 
 ## 🛠️ Setup Instructions
 
