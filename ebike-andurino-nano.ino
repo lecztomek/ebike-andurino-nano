@@ -8,6 +8,11 @@ const int assistUpPin = 3;
 const int assistDownPin = 4;
 const int setButtonPin = 5;
 const int walkAssistPin = 6;
+const int pwmPin = 9;  
+
+int pwmMinVoltInt = 100;  // 1.0V
+int pwmMaxVoltInt = 420;  // 4.2V 
+const float maxVolt = 5.0;
 
 const byte bufferSize = 20;                 // Number of samples in the sliding window
 byte pulseBuffer[bufferSize];               // Circular buffer holding recent pulse states (1 = pulse, 0 = no pulse)
@@ -53,7 +58,7 @@ bool lastInSettingsMode = false;
 byte currentSettingIndex = 0;
 unsigned long lastSetButtonPress = 0;
 const unsigned long longPressTime = 1500;
-const byte totalSettings = 7;
+const byte totalSettings = 9;
 // ----------------------
 
 void saveSettingsToEEPROM() {
@@ -64,6 +69,8 @@ void saveSettingsToEEPROM() {
   EEPROM.put(9, rampTime);
   EEPROM.put(13, numAssistLevels);
   EEPROM.put(14, sampleInterval); 
+  EEPROM.put(16, pwmMinVoltInt);
+  EEPROM.put(18, pwmMaxVoltInt);
 }
 
 void loadSettingsFromEEPROM() {
@@ -87,6 +94,12 @@ void loadSettingsFromEEPROM() {
 
   EEPROM.get(14, sampleInterval);
   if (sampleInterval < 10 || sampleInterval > 500) sampleInterval = 50;
+
+  EEPROM.get(16, pwmMinVoltInt);
+  if (pwmMinVoltInt < 0 || pwmMinVoltInt > 500) pwmMinVoltInt = 100;
+
+  EEPROM.get(18, pwmMaxVoltInt);
+  if (pwmMaxVoltInt < 0 || pwmMaxVoltInt > 500) pwmMaxVoltInt = 420;
 }
 
 byte getAssistPercentage(byte level) {
@@ -99,6 +112,13 @@ volatile unsigned long pulseInterval = 0;
 
 void countPulse() {
   pulseDetected = true;  // Only mark that a pulse occurred; actual logic happens in loop()
+}
+
+byte voltageToPWM(int voltageInt) {
+  float voltage = voltageInt / 100.0;
+  if (voltage <= 0) return 0;
+  if (voltage >= maxVolt) return 255;
+  return (byte)((voltage / maxVolt) * 255);
 }
 
 void setup() {
@@ -119,10 +139,10 @@ void setup() {
   pinMode(assistDownPin, INPUT_PULLUP);
   pinMode(setButtonPin, INPUT_PULLUP);
   pinMode(walkAssistPin, INPUT_PULLUP);
+  pinMode(pwmPin, OUTPUT);
 
   attachInterrupt(digitalPinToInterrupt(pasButtonPin), countPulse, FALLING);
   delay(500);
-
 
   lastMillis = millis();
 
@@ -138,14 +158,34 @@ void loop() {
     walkingAssist();
     calculateRPM();
     calculateAssist();
+    updatePWM();
     if (lastInSettingsMode){
       showOnDisplay(true);
     }else{
       showOnDisplay(false);
     }
+  }else{
+    assistPower = 0;
+    updatePWM();
   }
 
   lastInSettingsMode = inSettingsMode;
+}
+
+
+void updatePWM() {
+  byte pwmMinVal = voltageToPWM(pwmMinVoltInt);
+  byte pwmMaxVal = voltageToPWM(pwmMaxVoltInt);
+
+  byte pwmValue = 0;
+  if (assistPower > 0) {
+    pwmValue = map(assistPower, 0, 100, pwmMinVal, pwmMaxVal);
+  }
+  else {
+    pwmValue = 0;
+  }
+
+  analogWrite(pwmPin, pwmValue);
 }
 
 void samplePAS() {
@@ -375,6 +415,14 @@ void changeSetting(bool increase) {
       if (increase && sampleInterval < 500) sampleInterval += 10;
       else if (!increase && sampleInterval >= 20) sampleInterval -= 10;
       break;
+    case 7:
+      if (increase && pwmMinVoltInt < 490) pwmMinVoltInt += 10;
+      else if (!increase && pwmMinVoltInt > 10) pwmMinVoltInt -= 10;
+      break;
+    case 8:
+      if (increase && pwmMaxVoltInt < 500) pwmMaxVoltInt += 10;
+      else if (!increase && pwmMaxVoltInt > pwmMinVoltInt + 10) pwmMaxVoltInt -= 10;
+      break;
   }
 }
 
@@ -422,6 +470,18 @@ void showCurrentSetting() {
       lcd.setCursor(0, 1);
       lcd.print(String(sampleInterval));
       lcd.print("    ");
+      break;
+    case 7:
+      lcd.print("PWM Min Volt:   ");
+      lcd.setCursor(0, 1);
+      lcd.print(String(pwmMinVoltInt / 100.0, 1));
+      lcd.print(" V   ");
+      break;
+    case 8:
+      lcd.print("PWM Max Volt:   ");
+      lcd.setCursor(0, 1);
+      lcd.print(String(pwmMaxVoltInt / 100.0, 1));
+      lcd.print(" V   ");
       break;
   }
 }
