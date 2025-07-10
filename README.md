@@ -36,21 +36,7 @@ This section shows how the PAS, throttle, and brake sensor were originally conne
 
 ## 1. Original Setup (Before Modification)
 
-+---------+ +-------------+ +------------+
-| PAS | --------> | | | |
-+---------+ | | | |
-| Controller | --------> | Motor |
-+---------+ | | | Driver |
-| Throttle| --------> | | | |
-+---------+ +-------------+ +------------+
-+---------+
-| Brake | -------->
-| Sensor |
-+---------+
 
-markdown
-Kopiuj
-Edytuj
 
 - **PAS**: Pedal Assist Sensor input to the Controller.
 - **Throttle**: Original throttle input to the Controller.
@@ -62,26 +48,7 @@ Edytuj
 
 ## 2. Modified Setup (With Arduino PAS Controller)
 
-+---------+ +---------------------+
-| PAS | --------------> | |
-+---------+ | Arduino PAS |
-| Controller |
-| (simulates |
-| throttle signal) |
-+----------+----------+
-|
-v
-+-------------+ +------------+
-| | ---------> | |
-| Controller | | Motor |
-+---------+ | (Old) | | Driver |
-| Brake | ------------------------->| +------------+
-| Sensor | |
-+---------+ |
-
-yaml
-Kopiuj
-Edytuj
+     
 
 - The original throttle input is replaced by the PWM output generated from the Arduino PAS Controller.
 - The Arduino PAS Controller reads PAS signals and simulates a throttle signal output.
