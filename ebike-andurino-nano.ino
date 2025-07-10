@@ -52,6 +52,9 @@ const unsigned long updateInterval = 100;
 volatile unsigned long lastInterruptTime = 0;
 unsigned long walkingAssistStart = 0;
 
+static unsigned long lastDisplayUpdateTime = 0;  
+unsigned long displayRefreshInterval = 400; 
+
 // --- Settings Mode ---
 bool inSettingsMode = false;
 bool lastInSettingsMode = false;
@@ -288,10 +291,13 @@ void showOnDisplay(bool refreshNow) {
   static int lastTargetAssist = 0;
   static int lastAssistPower = 0;
 
-  if (refreshNow ||
-      rpm != lastRPM || 
-      targetAssist != lastTargetAssist || 
-      assistPower != lastAssistPower) {
+  unsigned long currentTime = millis();
+
+  if ((refreshNow || 
+    rpm != lastRPM || 
+    targetAssist != lastTargetAssist || 
+    assistPower != lastAssistPower) &&
+      (currentTime - lastDisplayUpdateTime >= displayRefreshInterval)) {
 
     lcd.setCursor(0, 0);
     lcd.print("Asst:");
@@ -327,6 +333,7 @@ void showOnDisplay(bool refreshNow) {
     lastRPM = rpm;
     lastTargetAssist = targetAssist;
     lastAssistPower = assistPower;
+    lastDisplayUpdateTime = currentTime;
   }
 }
 
