@@ -13,7 +13,7 @@ const int pwmPin = 9;
 int pwmIdleVoltInt = 80;  
 int pwmMinVoltInt = 100;  
 int pwmMaxVoltInt = 420;  
-const float maxVolt = 5.0;
+int supplyVoltageInt = 500;
 
 const byte bufferSize = 20;                 // Number of samples in the sliding window
 byte pulseBuffer[bufferSize];               // Circular buffer holding recent pulse states (1 = pulse, 0 = no pulse)
@@ -62,7 +62,7 @@ bool lastInSettingsMode = false;
 byte currentSettingIndex = 0;
 unsigned long lastSetButtonPress = 0;
 const unsigned long longPressTime = 1500;
-const byte totalSettings = 10;
+const byte totalSettings = 11;
 // ----------------------
 
 void saveSettingsToEEPROM() {
@@ -76,6 +76,7 @@ void saveSettingsToEEPROM() {
   EEPROM.put(16, pwmMinVoltInt);
   EEPROM.put(18, pwmMaxVoltInt);
   EEPROM.put(20, pwmIdleVoltInt);
+  EEPROM.put(22, supplyVoltageInt);
 }
 
 void loadSettingsFromEEPROM() {
@@ -108,6 +109,9 @@ void loadSettingsFromEEPROM() {
 
   EEPROM.get(20, pwmIdleVoltInt);
   if (pwmIdleVoltInt < 0 || pwmIdleVoltInt > 500) pwmIdleVoltInt = 80;
+
+  EEPROM.get(22, supplyVoltageInt);
+  if (supplyVoltageInt < 300 || supplyVoltageInt > 600) supplyVoltageInt = 500;
 }
 
 byte getAssistPercentage(byte level) {
@@ -124,9 +128,11 @@ void countPulse() {
 
 byte voltageToPWM(int voltageInt) {
   float voltage = voltageInt / 100.0;
+  float supplyVoltage = supplyVoltageInt / 100.0;
+
   if (voltage <= 0) return 0;
-  if (voltage >= maxVolt) return 255;
-  return (byte)((voltage / maxVolt) * 255);
+  if (voltage >= supplyVoltage) return 255;
+  return (byte)((voltage / supplyVoltage) * 255);
 }
 
 void setup() {
@@ -438,6 +444,10 @@ void changeSetting(bool increase) {
       if (increase && pwmIdleVoltInt < 500) pwmIdleVoltInt += 10;
       else if (!increase && pwmIdleVoltInt > pwmMinVoltInt + 10) pwmIdleVoltInt -= 10;
       break;
+    case 10:
+      if (increase && supplyVoltageInt < 500) supplyVoltageInt += 10;
+      else if (!increase && supplyVoltageInt > 300) supplyVoltageInt -= 10;
+      break;
   }
 }
 
@@ -504,5 +514,11 @@ void showCurrentSetting() {
       lcd.print(String(pwmIdleVoltInt / 100.0, 1));
       lcd.print(" V   ");
       break;
+  case 10:
+    lcd.print("Supply Volt:    ");
+    lcd.setCursor(0, 1);
+    lcd.print(String(supplyVoltageInt / 100.0, 2));
+    lcd.print(" V   ");
+    break;
   }
 }
