@@ -3,7 +3,7 @@
 
 LCDIC2 lcd(0x27, 16, 2);
 
-const int pasButtonPin = 2;
+const int pasPin = 2;
 const int assistUpPin = 3;
 const int assistDownPin = 4;
 const int setButtonPin = 5;
@@ -122,8 +122,31 @@ byte getAssistPercentage(byte level) {
 volatile unsigned long lastPulseTime = 0;
 volatile unsigned long pulseInterval = 0;  
 
+volatile unsigned long lowStartTime = 0;
+volatile bool lowStateStarted = false;
+
 void countPulse() {
-  pulseDetected = true;  // Only mark that a pulse occurred; actual logic happens in loop()
+  bool state = digitalRead(pasPin);
+  unsigned long now = micros();
+
+  if (state == LOW) {
+    // FALLING
+    lowStartTime = now;
+    lowStateStarted = true;
+  } else {
+    // RISING
+    if (lowStateStarted) {
+      unsigned long lowDuration = now - lowStartTime;
+      lowStateStarted = false;
+
+      //Serial.println(lowDuration);
+
+      // low state is shorter on forward direction
+      if (lowDuration < 80000) {
+        pulseDetected = true;
+      }
+    }
+  }
 }
 
 byte voltageToPWM(int voltageInt) {
@@ -148,14 +171,16 @@ void setup() {
 
   lcd.clear();
   lcd.print("Pins init...");
-  pinMode(pasButtonPin, INPUT_PULLUP);
+  pinMode(pasPin, INPUT_PULLUP);
   pinMode(assistUpPin, INPUT_PULLUP);
   pinMode(assistDownPin, INPUT_PULLUP);
   pinMode(setButtonPin, INPUT_PULLUP);
   pinMode(walkAssistPin, INPUT_PULLUP);
   pinMode(pwmPin, OUTPUT);
 
-  attachInterrupt(digitalPinToInterrupt(pasButtonPin), countPulse, FALLING);
+  Serial.begin(115200);
+
+  attachInterrupt(digitalPinToInterrupt(pasPin), countPulse, CHANGE);
   delay(500);
 
   lastMillis = millis();
@@ -514,11 +539,11 @@ void showCurrentSetting() {
       lcd.print(String(pwmIdleVoltInt / 100.0, 1));
       lcd.print(" V   ");
       break;
-  case 10:
-    lcd.print("Supply Volt:    ");
-    lcd.setCursor(0, 1);
-    lcd.print(String(supplyVoltageInt / 100.0, 2));
-    lcd.print(" V   ");
-    break;
+    case 10:
+      lcd.print("Supply Volt:    ");
+      lcd.setCursor(0, 1);
+      lcd.print(String(supplyVoltageInt / 100.0, 2));
+      lcd.print(" V   ");
+      break;
   }
 }
