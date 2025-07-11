@@ -10,8 +10,9 @@ const int setButtonPin = 5;
 const int walkAssistPin = 6;
 const int pwmPin = 9;  
 
-int pwmMinVoltInt = 100;  // 1.0V
-int pwmMaxVoltInt = 420;  // 4.2V 
+int pwmIdleVoltInt = 80;  
+int pwmMinVoltInt = 100;  
+int pwmMaxVoltInt = 420;  
 const float maxVolt = 5.0;
 
 const byte bufferSize = 20;                 // Number of samples in the sliding window
@@ -61,7 +62,7 @@ bool lastInSettingsMode = false;
 byte currentSettingIndex = 0;
 unsigned long lastSetButtonPress = 0;
 const unsigned long longPressTime = 1500;
-const byte totalSettings = 9;
+const byte totalSettings = 10;
 // ----------------------
 
 void saveSettingsToEEPROM() {
@@ -74,6 +75,7 @@ void saveSettingsToEEPROM() {
   EEPROM.put(14, sampleInterval); 
   EEPROM.put(16, pwmMinVoltInt);
   EEPROM.put(18, pwmMaxVoltInt);
+  EEPROM.put(20, pwmIdleVoltInt);
 }
 
 void loadSettingsFromEEPROM() {
@@ -103,6 +105,9 @@ void loadSettingsFromEEPROM() {
 
   EEPROM.get(18, pwmMaxVoltInt);
   if (pwmMaxVoltInt < 0 || pwmMaxVoltInt > 500) pwmMaxVoltInt = 420;
+
+  EEPROM.get(20, pwmIdleVoltInt);
+  if (pwmIdleVoltInt < 0 || pwmIdleVoltInt > 500) pwmIdleVoltInt = 80;
 }
 
 byte getAssistPercentage(byte level) {
@@ -177,15 +182,14 @@ void loop() {
 
 
 void updatePWM() {
-  byte pwmMinVal = voltageToPWM(pwmMinVoltInt);
-  byte pwmMaxVal = voltageToPWM(pwmMaxVoltInt);
+  byte pwmIdleVal = voltageToPWM(pwmIdleVoltInt);       
+  byte pwmMinVal  = voltageToPWM(pwmMinVoltInt);     
+  byte pwmMaxVal  = voltageToPWM(pwmMaxVoltInt);    
 
-  byte pwmValue = 0;
+  byte pwmValue = pwmIdleVal;
+
   if (assistPower > 0) {
     pwmValue = map(assistPower, 0, 100, pwmMinVal, pwmMaxVal);
-  }
-  else {
-    pwmValue = 0;
   }
 
   analogWrite(pwmPin, pwmValue);
@@ -430,6 +434,10 @@ void changeSetting(bool increase) {
       if (increase && pwmMaxVoltInt < 500) pwmMaxVoltInt += 10;
       else if (!increase && pwmMaxVoltInt > pwmMinVoltInt + 10) pwmMaxVoltInt -= 10;
       break;
+    case 9:
+      if (increase && pwmIdleVoltInt < 500) pwmIdleVoltInt += 10;
+      else if (!increase && pwmIdleVoltInt > pwmMinVoltInt + 10) pwmIdleVoltInt -= 10;
+      break;
   }
 }
 
@@ -488,6 +496,12 @@ void showCurrentSetting() {
       lcd.print("PWM Max Volt:   ");
       lcd.setCursor(0, 1);
       lcd.print(String(pwmMaxVoltInt / 100.0, 1));
+      lcd.print(" V   ");
+      break;
+    case 9:
+      lcd.print("PWM Idle Volt:  ");
+      lcd.setCursor(0, 1);
+      lcd.print(String(pwmIdleVoltInt / 100.0, 1));
       lcd.print(" V   ");
       break;
   }
