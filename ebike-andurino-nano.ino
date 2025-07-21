@@ -64,7 +64,6 @@ public:
 
 //VirtualLCD lcd;
 
-
 LCDIC2 lcd(0x27, 16, 2);
 
 const int pasPin = 2;
@@ -73,6 +72,7 @@ const int assistDownPin = 4;
 const int setButtonPin = 5;
 const int walkAssistPin = 6;
 const int pwmPin = 9;  
+const int currentSensorPin = A0;         // analog pin connected to current sensor
 
 int pwmIdleVoltInt = 80;  
 int pwmMinVoltInt = 100;  
@@ -222,6 +222,49 @@ byte voltageToPWM(int voltageInt) {
   return (byte)((voltage / supplyVoltage) * 255);
 }
 
+int currentZeroADC = 0;
+const int currentSamples = 50;           // number of samples for averaging
+float currentReadings[currentSamples];   // circular buffer for samples
+int currentIndex = 0;                    // current index in the buffer
+float currentSum = 0;                    // running sum of samples
+float filteredCurrent = 0;               // averaged current value
+
+void calibrateCurrentSensor() {
+  long sum = 0;
+  const int samples = 20;
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(currentSensorPin);
+    delay(50);
+  }
+
+  currentZeroADC = sum / samples;  // <- tutaj bez przeliczania na napięcie
+}
+
+float readAveragedADC(int pin, int samples = 10) {
+  if (samples < 3) samples = 3; 
+
+  int values[samples];
+  for (int i = 0; i < samples; i++) {
+    values[i] = analogRead(pin);
+  }
+
+  // znajdź min i max
+  int minVal = values[0];
+  int maxVal = values[0];
+  long sum = values[0];
+
+  for (int i = 1; i < samples; i++) {
+    if (values[i] < minVal) minVal = values[i];
+    if (values[i] > maxVal) maxVal = values[i];
+    sum += values[i];
+  }
+
+  sum -= minVal;
+  sum -= maxVal;
+
+  return (float)sum / (samples - 2);
+}
+
 void setup() {
   if (lcd.begin()) lcd.print("LCD init...");
   lcd.setCursor(false);
@@ -235,6 +278,7 @@ void setup() {
 
   lcd.clear();
   lcd.print("Pins init...");
+  pinMode(currentSensorPin, INPUT);
   pinMode(pasPin, INPUT_PULLUP);
   pinMode(assistUpPin, INPUT_PULLUP);
   pinMode(assistDownPin, INPUT_PULLUP);
@@ -243,6 +287,13 @@ void setup() {
   pinMode(pwmPin, OUTPUT);
 
   attachInterrupt(digitalPinToInterrupt(pasPin), countPulse, CHANGE);
+
+  lcd.clear();
+  lcd.print("Curr calibr...");
+  calibrateCurrentSensor();
+
+  lcd.clear();
+  lcd.print("Ready to go :)");
   delay(500);
 
   lastMillis = millis();
@@ -255,12 +306,14 @@ void loop() {
 
   if (!inSettingsMode) {
     samplePAS();
+    updateCurrent();
     updateAssistLevel();
     walkingAssist();
     calculateRPM();
     calculateAssist();
     updatePWM();
     if (lastInSettingsMode){
+      calibrateCurrentSensor(); 
       showOnDisplay(true);
     }else{
       showOnDisplay(false);
@@ -273,6 +326,25 @@ void loop() {
   lastInSettingsMode = inSettingsMode;
 }
 
+void updateCurrent() {
+  static unsigned long lastCurrentUpdate = 0;
+  if (millis() - lastCurrentUpdate >= 100) {
+    lastCurrentUpdate = millis();
+    float supplyVoltage = supplyVoltageInt / 100.0;
+    float sensorSensitivity = 0.04;
+
+    int raw = readAveragedADC(currentSensorPin, 10); 
+    float voltage = (raw - currentZeroADC) * (supplyVoltage / 1023.0);
+    float current = voltage / sensorSensitivity;
+
+    currentSum -= currentReadings[currentIndex];
+    currentReadings[currentIndex] = current;
+    currentSum += current;
+    currentIndex = (currentIndex + 1) % currentSamples;
+
+    filteredCurrent = currentSum / currentSamples;
+  }
+}
 
 void updatePWM() {
   byte pwmIdleVal = voltageToPWM(pwmIdleVoltInt);       
@@ -387,18 +459,23 @@ void showOnDisplay(bool refreshNow) {
   static int lastRPM = 10;
   static int lastTargetAssist = 0;
   static int lastAssistPower = 0;
+  static float lastFilteredCurrent = -1.0;
+  static bool lastWalkingAssistActive = false;
 
   unsigned long currentTime = millis();
 
   if ((refreshNow || 
-    rpm != lastRPM || 
-    targetAssist != lastTargetAssist || 
-    assistPower != lastAssistPower) &&
+       rpm != lastRPM || 
+       targetAssist != lastTargetAssist || 
+       assistPower != lastAssistPower ||
+       abs(filteredCurrent - lastFilteredCurrent) > 0.1 ||
+       walkingAssistActive != lastWalkingAssistActive) &&
       (currentTime - lastDisplayUpdateTime >= displayRefreshInterval)) {
 
+    // FIRST LINE
     lcd.setCursor(0, 0);
     lcd.print("Asst:");
-    lcd.print("    "); 
+    lcd.print("    ");  // clear previous value
     lcd.setCursor(5, 0);
     lcd.print(String(assistPower));
     lcd.print("%");
@@ -406,30 +483,44 @@ void showOnDisplay(bool refreshNow) {
     lcd.setCursor(9, 0);
     lcd.print("RPM:");
     lcd.setCursor(13, 0);
-    lcd.print("   "); 
+    lcd.print("   ");
     lcd.setCursor(13, 0);
     lcd.print(String(rpm));
 
-    bool assistActive = targetAssist > 0;
-
+    // SECOND LINE
     lcd.setCursor(0, 1);
-    lcd.print("Assist: ");
-    if (walkingAssistActive) {
-      lcd.print("WALKING");
-    }else{
-      lcd.print(assistActive ? "ON " : "OFF");
-    }
-    if (assistActive) {
-      lcd.print("(");
-      lcd.print(String(targetAssist));
-      lcd.print(") ");
+
+    // Format and print current
+    if (filteredCurrent < 0) {
+      lcd.print("I<0.0A");
+    } else if (filteredCurrent > 9.9) {
+      lcd.print("I>9.9A");
     } else {
-      lcd.print("     "); 
+      lcd.print("I:");
+      lcd.print(String(filteredCurrent, 1));
+      lcd.print("A");
+    }
+    
+    lcd.print("   ");
+
+    // Display assist status
+    if (walkingAssistActive) {
+      lcd.print("WALKING ");
+    } else if (targetAssist > 0) {
+      lcd.print("PWN:");
+      if (targetAssist < 10) lcd.print(" ");  // pad for 1-digit %
+      lcd.print(String(targetAssist));
+      lcd.print("%   ");
+    } else {
+      lcd.print("OFF    ");
     }
 
+    // Save last known values
     lastRPM = rpm;
     lastTargetAssist = targetAssist;
     lastAssistPower = assistPower;
+    lastFilteredCurrent = filteredCurrent;
+    lastWalkingAssistActive = walkingAssistActive;
     lastDisplayUpdateTime = currentTime;
   }
 }
