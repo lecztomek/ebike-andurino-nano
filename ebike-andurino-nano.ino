@@ -1,6 +1,70 @@
 #include <EEPROM.h>
 #include "LCDIC2.h"
 
+class VirtualLCD {
+private:
+  char screen[2][17];  // 16 znaków + null na końcu
+  int cursorCol = 0;
+  int cursorRow = 0;
+
+public:
+  bool begin() {
+    Serial.begin(9600);
+    clear();
+    return true;
+  }
+
+  void clear() {
+    for (int r = 0; r < 2; r++) {
+      for (int c = 0; c < 16; c++) {
+        screen[r][c] = ' ';
+      }
+      screen[r][16] = '\0';  // null terminator dla wygody
+    }
+    cursorCol = 0;
+    cursorRow = 0;
+    refresh();
+  }
+
+  void setCursor(bool cursorEnabled) {
+  }
+
+  void setCursor(int col, int row) {
+    if (col >= 0 && col < 16 && row >= 0 && row < 2) {
+      cursorCol = col;
+      cursorRow = row;
+    }
+  }
+
+  void print(const char* str) {
+    while (*str && cursorCol < 16) {
+      screen[cursorRow][cursorCol++] = *str++;
+    }
+    refresh();
+  }
+
+  void print(String str) {
+    print(str.c_str());
+  }
+
+  void print(int num) {
+    print(String(num));
+  }
+
+  void refresh() {
+    Serial.println("╔════════════════╗");
+    for (int r = 0; r < 2; r++) {
+      Serial.print("║");
+      Serial.print(screen[r]);
+      Serial.println("║");
+    }
+    Serial.println("╚════════════════╝\n");
+  }
+};
+
+//VirtualLCD lcd;
+
+
 LCDIC2 lcd(0x27, 16, 2);
 
 const int pasPin = 2;
@@ -177,8 +241,6 @@ void setup() {
   pinMode(setButtonPin, INPUT_PULLUP);
   pinMode(walkAssistPin, INPUT_PULLUP);
   pinMode(pwmPin, OUTPUT);
-
-  Serial.begin(115200);
 
   attachInterrupt(digitalPinToInterrupt(pasPin), countPulse, CHANGE);
   delay(500);
