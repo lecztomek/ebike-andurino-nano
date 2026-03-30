@@ -1,5 +1,6 @@
 #include <EEPROM.h>
 #include "LCDIC2.h"
+#include "ui.h"
 
 class VirtualLCD {
 private:
@@ -63,9 +64,12 @@ public:
 };
 
 //VirtualLCD lcd;
-
-
 LCDIC2 lcd(0x27, 16, 2);
+
+ScreenDisplayState displayState;
+
+const byte totalScreens = 1;
+byte currentScreen = 0;
 
 const int pasPin = 2;
 const int assistUpPin = 3;
@@ -126,7 +130,7 @@ bool lastInSettingsMode = false;
 byte currentSettingIndex = 0;
 unsigned long lastSetButtonPress = 0;
 const unsigned long longPressTime = 1500;
-const byte totalSettings = 11;
+const byte totalSettings = 12;
 // ----------------------
 
 void saveSettingsToEEPROM() {
@@ -141,6 +145,7 @@ void saveSettingsToEEPROM() {
   EEPROM.put(18, pwmMaxVoltInt);
   EEPROM.put(20, pwmIdleVoltInt);
   EEPROM.put(22, supplyVoltageInt);
+  EEPROM.put(24, currentScreen);
 }
 
 void loadSettingsFromEEPROM() {
@@ -176,6 +181,9 @@ void loadSettingsFromEEPROM() {
 
   EEPROM.get(22, supplyVoltageInt);
   if (supplyVoltageInt < 300 || supplyVoltageInt > 600) supplyVoltageInt = 500;
+
+  EEPROM.get(24, currentScreen);
+if (currentScreen >= totalScreens) currentScreen = 0;
 }
 
 byte getAssistPercentage(byte level) {
@@ -384,54 +392,18 @@ void calculateRPM() {
 }
 
 void showOnDisplay(bool refreshNow) {
-  static int lastRPM = 10;
-  static int lastTargetAssist = 0;
-  static int lastAssistPower = 0;
-
-  unsigned long currentTime = millis();
-
-  if ((refreshNow || 
-    rpm != lastRPM || 
-    targetAssist != lastTargetAssist || 
-    assistPower != lastAssistPower) &&
-      (currentTime - lastDisplayUpdateTime >= displayRefreshInterval)) {
-
-    lcd.setCursor(0, 0);
-    lcd.print("Asst:");
-    lcd.print("    "); 
-    lcd.setCursor(5, 0);
-    lcd.print(String(assistPower));
-    lcd.print("%");
-
-    lcd.setCursor(9, 0);
-    lcd.print("RPM:");
-    lcd.setCursor(13, 0);
-    lcd.print("   "); 
-    lcd.setCursor(13, 0);
-    lcd.print(String(rpm));
-
-    bool assistActive = targetAssist > 0;
-
-    lcd.setCursor(0, 1);
-    lcd.print("Assist: ");
-    if (walkingAssistActive) {
-      lcd.print("WALKING");
-    }else{
-      lcd.print(assistActive ? "ON " : "OFF");
-    }
-    if (assistActive) {
-      lcd.print("(");
-      lcd.print(String(targetAssist));
-      lcd.print(") ");
-    } else {
-      lcd.print("     "); 
-    }
-
-    lastRPM = rpm;
-    lastTargetAssist = targetAssist;
-    lastAssistPower = assistPower;
-    lastDisplayUpdateTime = currentTime;
-  }
+  renderScreen(
+    lcd,
+    currentScreen,
+    refreshNow,
+    rpm,
+    targetAssist,
+    assistPower,
+    walkingAssistActive,
+    millis(),
+    displayRefreshInterval,
+    displayState
+  );
 }
 
 void handleSettings() {
@@ -535,6 +507,13 @@ void changeSetting(bool increase) {
       if (increase && supplyVoltageInt < 500) supplyVoltageInt += 10;
       else if (!increase && supplyVoltageInt > 300) supplyVoltageInt -= 10;
       break;
+    case 11:
+      if (increase) {
+        if (currentScreen + 1 < totalScreens) currentScreen++;
+      } else {
+        if (currentScreen > 0) currentScreen--;
+      }
+      break;
   }
 }
 
@@ -606,6 +585,14 @@ void showCurrentSetting() {
       lcd.setCursor(0, 1);
       lcd.print(String(supplyVoltageInt / 100.0, 2));
       lcd.print(" V   ");
+      break;
+    case 11:
+      lcd.print("Screen:         ");
+      lcd.setCursor(0, 1);
+      lcd.print(String(currentScreen));
+      lcd.print("/");
+      lcd.print(String(totalScreens - 1));
+      lcd.print("    ");
       break;
   }
 }
