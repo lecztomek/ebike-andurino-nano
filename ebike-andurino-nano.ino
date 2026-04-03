@@ -182,7 +182,7 @@ VirtualLCD lcd;
 ScreenDisplayState displayState;
 
 bool serialWalkPressed = false;
-const byte totalScreens = 2;
+const byte totalScreens = 3;
 byte currentScreen = 0;
 
 const int pasPin = 2;

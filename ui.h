@@ -50,15 +50,15 @@ static void uiPrintBigDigit2x2(TLcd& lcd, byte startCol, const uint8_t tiles[4])
 }
 
 template <typename TLcd>
-static void uiRenderScreen2TA(TLcd& lcd, unsigned int targetAssist) {
+static void uiRenderBigValueScreen(TLcd& lcd, const char* label, unsigned int value) {
   uiLoadBigTronFont(lcd);
   lcd.clear();
 
   lcd.setCursor(0, 0);
-  lcd.print("ASSIST:");
+  lcd.print(label);
 
   char buf[6];
-  snprintf(buf, sizeof(buf), "%u", targetAssist);
+  snprintf(buf, sizeof(buf), "%u", value);
 
   byte len = 0;
   while (buf[len] != '\0' && len < 5) len++;
@@ -69,17 +69,25 @@ static void uiRenderScreen2TA(TLcd& lcd, unsigned int targetAssist) {
     len = 1;
   }
 
+  byte labelWidth = 0;
+  while (label[labelWidth] != '\0' && labelWidth < 16) labelWidth++;
+
   // 1 duza cyfra = 2 kolumny, miedzy cyframi 1 kolumna przerwy
-  // 4 cyfry jeszcze wchodza obok "TA:"
-  if (len > 4) {
-    lcd.setCursor(4, 0);
+  byte totalWidth = len * 2 + (len - 1);
+
+  // Start od prawej, ale nie wchodz na napis
+  byte minStartCol = labelWidth;
+  if (minStartCol < 15) minStartCol += 1;
+
+  byte startCol = 16 - totalWidth;
+  if (startCol < minStartCol) startCol = minStartCol;
+
+  // Gdy sie nie miesci, fallback do zwyklego tekstu
+  if (startCol + totalWidth > 16) {
+    lcd.setCursor(minStartCol < 16 ? minStartCol : 0, 0);
     lcd.print(buf);
     return;
   }
-
-  byte totalWidth = len * 2 + (len - 1);
-  byte startCol = 16 - totalWidth;
-  if (startCol < 4) startCol = 4;
 
   for (byte i = 0; i < len; i++) {
     byte digit = (byte)(buf[i] - '0');
@@ -91,6 +99,16 @@ static void uiRenderScreen2TA(TLcd& lcd, unsigned int targetAssist) {
       UI_BIG_TRON_DIGITS[digit]
     );
   }
+}
+
+template <typename TLcd>
+static void uiRenderScreen2TA(TLcd& lcd, unsigned int targetAssist) {
+  uiRenderBigValueScreen(lcd, "ASSIST", targetAssist);
+}
+
+template <typename TLcd>
+static void uiRenderScreen3RPM(TLcd& lcd, unsigned int rpm) {
+  uiRenderBigValueScreen(lcd, "RPM", rpm);
 }
 
 template <typename TLcd>
@@ -119,9 +137,11 @@ void renderScreen(
     return;
   }
 
-  // drugi ekran, czyli currentScreen == 1
+  // ekran 2 = ASSIST, ekran 3 = RPM
   if (currentScreen == 1) {
     uiRenderScreen2TA(lcd, targetAssist);
+  } else if (currentScreen == 2) {
+    uiRenderScreen3RPM(lcd, rpm);
   } else {
     char line1[17];
     char line2[17];
