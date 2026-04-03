@@ -20,6 +20,10 @@ static void writeUIntAt(char line[17], byte col, unsigned int value) {
   writeAt(line, col, buf);
 }
 
+// ============================================================
+// SCREEN 0 - bez zmian
+// ============================================================
+
 static void buildScreen0Lines(
   unsigned int rpm,
   unsigned int targetAssist,
@@ -33,11 +37,6 @@ static void buildScreen0Lines(
 
   bool assistActive = targetAssist > 0;
 
-  // Linia 1 - zgodna z poprzednim układem:
-  // "Asst:" na pozycji 0
-  // wartość assistPower od pozycji 5
-  // "RPM:" od pozycji 9
-  // wartość rpm od pozycji 13
   writeAt(line1, 0, "Asst:");
 
   char assistBuf[8];
@@ -47,9 +46,6 @@ static void buildScreen0Lines(
   writeAt(line1, 9, "RPM:");
   writeUIntAt(line1, 13, rpm);
 
-  // Linia 2 - zgodna z poprzednim układem:
-  // "Assist: " od pozycji 0
-  // status od pozycji 8
   writeAt(line2, 0, "Assist: ");
 
   if (walkingAssistActive) {
@@ -64,6 +60,38 @@ static void buildScreen0Lines(
     }
   }
 }
+
+// ============================================================
+// FONT 2x2 BIG NUMBERS - Tron style
+// Oparte na Alpenglow_BigNums2x2
+// 8 shared custom glyphs + mapowanie cyfr 0..9 na 4 kafle
+// Kolejnosc kafli: UL, LL, UR, LR
+// ============================================================
+
+const uint8_t UI_BIG_TRON_GLYPHS[8][8] = {
+  { B11111, B11111, B00000, B00000, B00000, B00000, B00000, B00000 }, // tron0
+  { B11000, B11000, B11000, B11000, B11000, B11000, B11000, B11000 }, // tron1
+  { B00000, B00000, B00000, B00000, B00000, B00000, B11111, B11111 }, // tron2
+  { B11111, B11111, B00011, B00011, B00011, B00011, B11111, B11111 }, // tron3
+  { B11111, B11111, B11000, B11000, B11000, B11000, B11111, B11111 }, // tron4
+  { B11111, B11111, B11000, B11000, B11000, B11000, B11000, B11000 }, // tron5
+  { B00011, B00011, B00011, B00011, B00011, B00011, B11111, B11111 }, // tron6
+  { B11111, B11111, B00011, B00011, B00011, B00011, B00011, B00011 }  // tron7
+};
+
+const uint8_t UI_BIG_TRON_DIGITS[11][4] = {
+  { 5,   255, 7,   6   }, // 0
+  { 0,   2,   1,   255 }, // 1
+  { 0,   255, 3,   2   }, // 2
+  { 0,   2,   3,   255 }, // 3
+  { 1,   0,   255, 1   }, // 4
+  { 4,   2,   0,   255 }, // 5
+  { 5,   4,   0,   255 }, // 6
+  { 0,   32,  255, 1   }, // 7
+  { 255, 4,   3,   255 }, // 8
+  { 255, 2,   3,   6   }, // 9
+  { 32,  32,  32,  32  }  // blank
+};
 
 void buildScreenLines(
   byte currentScreen,

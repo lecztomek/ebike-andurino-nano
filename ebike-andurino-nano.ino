@@ -4,42 +4,134 @@
 
 class VirtualLCD {
 private:
-  char screen[2][17];  // 16 znaków + null na końcu
+  uint8_t screen[2][16];
+  uint8_t glyphs[8][8];
+  bool glyphDefined[8];
   int cursorCol = 0;
   int cursorRow = 0;
 
-public:
-  bool begin() {
-    Serial.begin(9600);
-    clear();
-    return true;
-  }
-
-  void clear() {
+  void resetScreenBuffer() {
     for (int r = 0; r < 2; r++) {
       for (int c = 0; c < 16; c++) {
         screen[r][c] = ' ';
       }
-      screen[r][16] = '\0';  // null terminator dla wygody
     }
+  }
+
+  void resetGlyphs() {
+    for (int g = 0; g < 8; g++) {
+      glyphDefined[g] = false;
+      for (int i = 0; i < 8; i++) {
+        glyphs[g][i] = 0;
+      }
+    }
+  }
+
+  bool isPrintable(uint8_t cell) const {
+    return cell >= 32 && cell <= 126;
+  }
+
+  bool isCustomGlyph(uint8_t cell) const {
+    return cell < 8 && glyphDefined[cell];
+  }
+
+  bool isSolidBlock(uint8_t cell) const {
+    return cell == 255;
+  }
+
+  const char* pairToBlock(bool top, bool bottom) const {
+    if (top && bottom) return "█";
+    if (top) return "▀";
+    if (bottom) return "▄";
+    return " ";
+  }
+
+  void printHorizontalBorder() const {
+    Serial.print('+');
+    for (int i = 0; i < 95; i++) Serial.print('-'); // 16*5 + 15 odstepow
+    Serial.println('+');
+  }
+
+  void printCustomCellRow(uint8_t glyph, int rowPair) const {
+    int r0 = rowPair * 2;
+    int r1 = r0 + 1;
+
+    for (int px = 0; px < 5; px++) {
+      bool top = glyphs[glyph][r0] & (1 << (4 - px));
+      bool bottom = glyphs[glyph][r1] & (1 << (4 - px));
+      Serial.print(pairToBlock(top, bottom));
+    }
+  }
+
+  void printSolidCellRow() const {
+    Serial.print("█████");
+  }
+
+  void printTextCellRow(uint8_t cell, int rowPair) const {
+    // zwykly znak tylko w jednej "srodkowej" linii komorki
+    if (rowPair == 1) {
+      Serial.print("  ");
+      Serial.print((char)cell);
+      Serial.print("  ");
+    } else {
+      Serial.print("     ");
+    }
+  }
+
+  void printEmptyCellRow() const {
+    Serial.print("     ");
+  }
+
+public:
+  bool begin() {
+    Serial.begin(9600);
+    resetGlyphs();
+    clear();
+    return true;
+  }
+
+  bool clear() {
+    resetScreenBuffer();
     cursorCol = 0;
     cursorRow = 0;
     refresh();
+    return true;
   }
 
   void setCursor(bool cursorEnabled) {
   }
 
-  void setCursor(int col, int row) {
+  bool setCursor(int col, int row) {
     if (col >= 0 && col < 16 && row >= 0 && row < 2) {
       cursorCol = col;
       cursorRow = row;
+      return true;
     }
+    return false;
+  }
+
+  bool setGlyph(uint8_t glyph, const uint8_t buffer[]) {
+    if (glyph >= 8 || buffer == nullptr) return false;
+
+    for (int i = 0; i < 8; i++) {
+      glyphs[glyph][i] = buffer[i];
+    }
+    glyphDefined[glyph] = true;
+    return true;
+  }
+
+  bool print(uint8_t glyph) {
+    if (cursorCol < 16) {
+      screen[cursorRow][cursorCol++] = glyph;
+      refresh();
+      return true;
+    }
+    return false;
   }
 
   void print(const char* str) {
     while (*str && cursorCol < 16) {
-      screen[cursorRow][cursorCol++] = *str++;
+      screen[cursorRow][cursorCol++] = (uint8_t)(*str++);
     }
     refresh();
   }
@@ -53,22 +145,44 @@ public:
   }
 
   void refresh() {
-    Serial.println("╔════════════════╗");
-    for (int r = 0; r < 2; r++) {
-      Serial.print("║");
-      Serial.print(screen[r]);
-      Serial.println("║");
+    printHorizontalBorder();
+
+    for (int lcdRow = 0; lcdRow < 2; lcdRow++) {
+      for (int rowPair = 0; rowPair < 4; rowPair++) {
+        Serial.print('|');
+
+        for (int c = 0; c < 16; c++) {
+          uint8_t cell = screen[lcdRow][c];
+
+          if (isSolidBlock(cell)) {
+            printSolidCellRow();
+          } else if (isCustomGlyph(cell)) {
+            printCustomCellRow(cell, rowPair);
+          } else if (isPrintable(cell)) {
+            printTextCellRow(cell, rowPair);
+          } else {
+            printEmptyCellRow();
+          }
+
+          if (c < 15) Serial.print(' ');
+        }
+
+        Serial.println('|');
+      }
     }
-    Serial.println("╚════════════════╝\n");
+
+    printHorizontalBorder();
+    Serial.println();
   }
 };
 
-//VirtualLCD lcd;
-LCDIC2 lcd(0x27, 16, 2);
+VirtualLCD lcd;
+//LCDIC2 lcd(0x27, 16, 2);
 
 ScreenDisplayState displayState;
 
-const byte totalScreens = 1;
+bool serialWalkPressed = false;
+const byte totalScreens = 2;
 byte currentScreen = 0;
 
 const int pasPin = 2;
@@ -230,6 +344,101 @@ byte voltageToPWM(int voltageInt) {
   return (byte)((voltage / supplyVoltage) * 255);
 }
 
+void printSerialHelp() {
+  Serial.println();
+  Serial.println("=== Serial control ===");
+  Serial.println("u - assist up / setting +");
+  Serial.println("d - assist down / setting -");
+  Serial.println("s - next setting");
+  Serial.println("l - enter/exit settings");
+  Serial.println("w - walk assist ON");
+  Serial.println("x - walk assist OFF");
+  Serial.println("p - PAS pulse");
+  Serial.println("? - help");
+  Serial.println();
+}
+
+void toggleSettingsMode() {
+  if (!inSettingsMode) {
+    inSettingsMode = true;
+    currentSettingIndex = 0;
+    lcd.clear();
+    showCurrentSetting();
+    Serial.println("Settings mode: ON");
+  } else {
+    inSettingsMode = false;
+    saveSettingsToEEPROM();
+    lcd.clear();
+    Serial.println("Settings mode: OFF");
+    showOnDisplay(true);
+  }
+}
+
+void handleSerialCommands() {
+  while (Serial.available() > 0) {
+    char cmd = Serial.read();
+
+    if (cmd == '\n' || cmd == '\r') continue;
+
+    switch (cmd) {
+      case 'u':
+        if (inSettingsMode) {
+          changeSetting(true);
+          showCurrentSetting();
+        } else if (currentAssistLevel < numAssistLevels) {
+          currentAssistLevel++;
+          targetAssist = getAssistPercentage(currentAssistLevel);
+          showOnDisplay(true);
+        }
+        break;
+
+      case 'd':
+        if (inSettingsMode) {
+          changeSetting(false);
+          showCurrentSetting();
+        } else if (currentAssistLevel > 0) {
+          currentAssistLevel--;
+          targetAssist = getAssistPercentage(currentAssistLevel);
+          showOnDisplay(true);
+        }
+        break;
+
+      case 's':
+        if (inSettingsMode) {
+          currentSettingIndex = (currentSettingIndex + 1) % totalSettings;
+          lcd.clear();
+          showCurrentSetting();
+        }
+        break;
+
+      case 'l':
+        toggleSettingsMode();
+        break;
+
+      case 'w':
+        serialWalkPressed = true;
+        Serial.println("Walk assist: ON");
+        break;
+
+      case 'x':
+        serialWalkPressed = false;
+        walkingPressStart = 0;
+        walkingAssistActive = false;
+        Serial.println("Walk assist: OFF");
+        break;
+
+      case 'p':
+        pulseDetected = true;
+        Serial.println("PAS pulse");
+        break;
+
+      case '?':
+        printSerialHelp();
+        break;
+    }
+  }
+}
+
 void setup() {
   if (lcd.begin()) lcd.print("LCD init...");
   lcd.setCursor(false);
@@ -259,6 +468,7 @@ void setup() {
 }
 
 void loop() {
+  handleSerialCommands();
   handleSettings();
 
   if (!inSettingsMode) {
@@ -313,7 +523,8 @@ void samplePAS() {
 }
 
 void walkingAssist() {
-  if (currentAssistLevel == 0 && rpm == 0 && digitalRead(walkAssistPin) == LOW) {
+  if (currentAssistLevel == 0 && rpm == 0 &&
+    (digitalRead(walkAssistPin) == LOW || serialWalkPressed)) {
     if (walkingPressStart == 0) {
       walkingPressStart = millis();
     } else if (!walkingAssistActive && millis() - walkingPressStart >= walkingDelay) {
@@ -423,6 +634,7 @@ void handleSettings() {
       inSettingsMode = true;
       currentSettingIndex = 0;
       lcd.clear();
+      showCurrentSetting();
     } else {
       // Wyjście z ustawień
       inSettingsMode = false;
@@ -449,150 +661,176 @@ void handleSettingsMenu() {
   if (digitalRead(assistUpPin) == LOW) {
     changeSetting(true);
     lastButton = millis();
-  } else if (digitalRead(assistDownPin) == LOW) {
+    showCurrentSetting();
+  } 
+  else if (digitalRead(assistDownPin) == LOW) {
     changeSetting(false);
     lastButton = millis();
-  } else if (digitalRead(setButtonPin) == LOW) {
+    showCurrentSetting();
+  } 
+  else if (digitalRead(setButtonPin) == LOW) {
     currentSettingIndex = (currentSettingIndex + 1) % totalSettings;
-    lcd.clear(); // wyczyść ekran przy przejściu do nowej opcji
+    lcd.clear();
     lastButton = millis();
+    showCurrentSetting();
   }
-
-  showCurrentSetting();
 }
 
 void changeSetting(bool increase) {
   switch (currentSettingIndex) {
     case 0:
-      if (increase) pulsesPerRevolution++;
-      else if (pulsesPerRevolution > 1) pulsesPerRevolution--;
-      break;
-    case 1:
-      if (increase && walkingAssistPower < 100) walkingAssistPower++;
-      else if (!increase && walkingAssistPower > 1) walkingAssistPower--;
-      break;
-    case 2:
-      if (increase) walkingDelay += 500;
-      else if (walkingDelay >= 1000) walkingDelay -= 500;
-      break;
-    case 3:
-      if (increase) minRPM++;
-      else if (minRPM > 0) minRPM--;
-      break;
-    case 4:
-      if (increase) rampTime += 200;
-      else if (rampTime >= 400) rampTime -= 200;
-      break;
-    case 5:
-      if (increase && numAssistLevels < 20) numAssistLevels++;
-      else if (!increase && numAssistLevels > 1) numAssistLevels--;
-      break;
-    case 6: 
-      if (increase && sampleInterval < 500) sampleInterval += 10;
-      else if (!increase && sampleInterval >= 20) sampleInterval -= 10;
-      break;
-    case 7:
-      if (increase && pwmMinVoltInt < 490) pwmMinVoltInt += 10;
-      else if (!increase && pwmMinVoltInt > 10) pwmMinVoltInt -= 10;
-      break;
-    case 8:
-      if (increase && pwmMaxVoltInt < 500) pwmMaxVoltInt += 10;
-      else if (!increase && pwmMaxVoltInt > pwmMinVoltInt + 10) pwmMaxVoltInt -= 10;
-      break;
-    case 9:
-      if (increase && pwmIdleVoltInt < 500) pwmIdleVoltInt += 10;
-      else if (!increase && pwmIdleVoltInt > pwmMinVoltInt + 10) pwmIdleVoltInt -= 10;
-      break;
-    case 10:
-      if (increase && supplyVoltageInt < 500) supplyVoltageInt += 10;
-      else if (!increase && supplyVoltageInt > 300) supplyVoltageInt -= 10;
-      break;
-    case 11:
       if (increase) {
         if (currentScreen + 1 < totalScreens) currentScreen++;
       } else {
         if (currentScreen > 0) currentScreen--;
       }
       break;
+
+    case 1:
+      if (increase) pulsesPerRevolution++;
+      else if (pulsesPerRevolution > 1) pulsesPerRevolution--;
+      break;
+
+    case 2:
+      if (increase && walkingAssistPower < 100) walkingAssistPower++;
+      else if (!increase && walkingAssistPower > 1) walkingAssistPower--;
+      break;
+
+    case 3:
+      if (increase) walkingDelay += 500;
+      else if (walkingDelay >= 1000) walkingDelay -= 500;
+      break;
+
+    case 4:
+      if (increase) minRPM++;
+      else if (minRPM > 0) minRPM--;
+      break;
+
+    case 5:
+      if (increase) rampTime += 200;
+      else if (rampTime >= 400) rampTime -= 200;
+      break;
+
+    case 6:
+      if (increase && numAssistLevels < 20) numAssistLevels++;
+      else if (!increase && numAssistLevels > 1) numAssistLevels--;
+      break;
+
+    case 7:
+      if (increase && sampleInterval < 500) sampleInterval += 10;
+      else if (!increase && sampleInterval >= 20) sampleInterval -= 10;
+      break;
+
+    case 8:
+      if (increase && pwmMinVoltInt < 490) pwmMinVoltInt += 10;
+      else if (!increase && pwmMinVoltInt > 10) pwmMinVoltInt -= 10;
+      break;
+
+    case 9:
+      if (increase && pwmMaxVoltInt < 500) pwmMaxVoltInt += 10;
+      else if (!increase && pwmMaxVoltInt > pwmMinVoltInt + 10) pwmMaxVoltInt -= 10;
+      break;
+
+    case 10:
+      if (increase && pwmIdleVoltInt < 500) pwmIdleVoltInt += 10;
+      else if (!increase && pwmIdleVoltInt > pwmMinVoltInt + 10) pwmIdleVoltInt -= 10;
+      break;
+
+    case 11:
+      if (increase && supplyVoltageInt < 500) supplyVoltageInt += 10;
+      else if (!increase && supplyVoltageInt > 300) supplyVoltageInt -= 10;
+      break;
   }
 }
 
 void showCurrentSetting() {
-  lcd.setCursor(0, 0);
+  static String lastLine0 = "";
+  static String lastLine1 = "";
+  static unsigned long lastCallTime = 0;
+
+  String line0 = "";
+  String line1 = "";
+
   switch (currentSettingIndex) {
     case 0:
-      lcd.print("NumOf Magnetics:");
-      lcd.setCursor(0, 1);
-      lcd.print(String(pulsesPerRevolution));
-      lcd.print("    ");
+      line0 = "Screen:";
+      line1 = String(currentScreen) + "/" + String(totalScreens - 1);
       break;
+
     case 1:
-      lcd.print("Walk Asst [%]:  ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(walkingAssistPower));
-      lcd.print("    ");
+      line0 = "NumOf Magnetics:";
+      line1 = String(pulsesPerRevolution);
       break;
+
     case 2:
-      lcd.print("WalkDelay [ms]: ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(walkingDelay));
-      lcd.print("    ");
+      line0 = "Walk Asst [%]:";
+      line1 = String(walkingAssistPower);
       break;
+
     case 3:
-      lcd.print("Min RPM:        ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(minRPM));
-      lcd.print("    ");
+      line0 = "WalkDelay [ms]:";
+      line1 = String(walkingDelay);
       break;
+
     case 4:
-      lcd.print("RampTime [ms]:  ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(rampTime));
-      lcd.print("    ");
+      line0 = "Min RPM:";
+      line1 = String(minRPM);
       break;
+
     case 5:
-      lcd.print("Asst Levels:    ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(numAssistLevels));
-      lcd.print("    ");
+      line0 = "RampTime [ms]:";
+      line1 = String(rampTime);
       break;
+
     case 6:
-      lcd.print("RPMIntval [ms]: ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(sampleInterval));
-      lcd.print("    ");
+      line0 = "Asst Levels:";
+      line1 = String(numAssistLevels);
       break;
+
     case 7:
-      lcd.print("PWM Min Volt:   ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(pwmMinVoltInt / 100.0, 1));
-      lcd.print(" V   ");
+      line0 = "RPMIntval [ms]:";
+      line1 = String(sampleInterval);
       break;
+
     case 8:
-      lcd.print("PWM Max Volt:   ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(pwmMaxVoltInt / 100.0, 1));
-      lcd.print(" V   ");
+      line0 = "PWM Min Volt:";
+      line1 = String(pwmMinVoltInt / 100.0, 1) + " V";
       break;
+
     case 9:
-      lcd.print("PWM Idle Volt:  ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(pwmIdleVoltInt / 100.0, 1));
-      lcd.print(" V   ");
+      line0 = "PWM Max Volt:";
+      line1 = String(pwmMaxVoltInt / 100.0, 1) + " V";
       break;
+
     case 10:
-      lcd.print("Supply Volt:    ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(supplyVoltageInt / 100.0, 2));
-      lcd.print(" V   ");
+      line0 = "PWM Idle Volt:";
+      line1 = String(pwmIdleVoltInt / 100.0, 1) + " V";
       break;
+
     case 11:
-      lcd.print("Screen:         ");
-      lcd.setCursor(0, 1);
-      lcd.print(String(currentScreen));
-      lcd.print("/");
-      lcd.print(String(totalScreens - 1));
-      lcd.print("    ");
+      line0 = "Supply Volt:";
+      line1 = String(supplyVoltageInt / 100.0, 2) + " V";
       break;
+  }
+
+  while (line0.length() < 16) line0 += ' ';
+  while (line1.length() < 16) line1 += ' ';
+  if (line0.length() > 16) line0 = line0.substring(0, 16);
+  if (line1.length() > 16) line1 = line1.substring(0, 16);
+
+  unsigned long now = millis();
+  bool forceRedraw = (now - lastCallTime > 350);
+  lastCallTime = now;
+
+  if (forceRedraw || line0 != lastLine0) {
+    lcd.setCursor(0, 0);
+    lcd.print(line0);
+    lastLine0 = line0;
+  }
+
+  if (forceRedraw || line1 != lastLine1) {
+    lcd.setCursor(0, 1);
+    lcd.print(line1);
+    lastLine1 = line1;
   }
 }
