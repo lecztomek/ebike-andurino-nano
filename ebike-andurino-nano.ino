@@ -1,6 +1,7 @@
 #include <EEPROM.h>
 #include "LCDIC2.h"
 #include "ui.h"
+#include "simpleHXLevel.h"
 
 class VirtualLCD {
 private:
@@ -176,13 +177,23 @@ public:
   }
 };
 
-VirtualLCD lcd;
-//LCDIC2 lcd(0x27, 16, 2);
+//VirtualLCD lcd;
+LCDIC2 lcd(0x27, 16, 2);
 
 ScreenDisplayState displayState;
 
+const uint8_t hxDtPin  = A1;
+const uint8_t hxSckPin = A2;
+
+SimpleHXLevel hx(hxDtPin, hxSckPin);
+
+int hxLevel = 0;                  // 0..100
+long hxTorque = 0;                // surowy torque z biblioteki
+bool hxError = false;
+const char* hxErrorText = "OK";
+
 bool serialWalkPressed = false;
-const byte totalScreens = 3;
+const byte totalScreens = 5;
 byte currentScreen = 0;
 
 const int pasPin = 2;
@@ -462,8 +473,16 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(pasPin), countPulse, CHANGE);
   delay(500);
 
-  lastMillis = millis();
+  lcd.clear();
+  lcd.print("HX init...");
+  if (!hx.begin(2000)) {
+    Serial.println("HX init failed");
+    lcd.clear();
+    lcd.print("HX init error");
+    delay(1000);
+  }
 
+  lastMillis = millis();
   lcd.clear();
 }
 
@@ -476,6 +495,7 @@ void loop() {
     updateAssistLevel();
     walkingAssist();
     calculateRPM();
+    updateHXSensor();
     calculateAssist();
     updatePWM();
     if (lastInSettingsMode){
@@ -491,6 +511,17 @@ void loop() {
   lastInSettingsMode = inSettingsMode;
 }
 
+void updateHXSensor() {
+  bool shouldZero = (rpm == 0);
+
+  hx.setZeroing(shouldZero);
+  hx.update();
+
+  hxLevel = hx.getLevel();
+  hxTorque = hx.getTorque();
+  hxError = hx.hasError();
+  hxErrorText = hx.getErrorText();
+}
 
 void updatePWM() {
   byte pwmIdleVal = voltageToPWM(pwmIdleVoltInt);       
@@ -611,6 +642,10 @@ void showOnDisplay(bool refreshNow) {
     targetAssist,
     assistPower,
     walkingAssistActive,
+    hxLevel,
+    hxTorque,
+    hxError,
+    hxErrorText,
     millis(),
     displayRefreshInterval,
     displayState

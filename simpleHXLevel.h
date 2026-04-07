@@ -48,7 +48,11 @@ private:
   float _torqueAlpha = 0.25f;
   float _zeroAlphaRun = 0.20f;
 
-  uint32_t _readTimeoutMs = 120;
+  // czekanie na pojedynczą próbkę HX711
+  uint32_t _readTimeoutMs = 150;
+
+  // błąd timeout dopiero po tylu ms bez poprawnego odczytu
+  uint32_t _signalTimeoutMs = 1000;
 
   const long _satPos =  8388607L;
   const long _satNeg = -8388608L;
@@ -59,7 +63,10 @@ private:
 
   uint16_t _okRequired = 10;
   int _recoverLevelMax = 2;
-  uint32_t _periodMs = 50;
+
+  // dla HX711 10 SPS
+  uint32_t _periodMs = 100;
+
   uint32_t _softStartMs = 2000;
 
   // stan
@@ -75,6 +82,7 @@ private:
   uint16_t _okCount = 0;
   uint32_t _softStartUntil = 0;
   uint32_t _lastUpdateMs = 0;
+  uint32_t _lastGoodReadMs = 0;
 
   // jitter window
   long _winMin = 0;

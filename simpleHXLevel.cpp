@@ -20,10 +20,12 @@ bool SimpleHXLevel::begin(uint32_t startupCalMs) {
   while ((uint32_t)(millis() - t0) < startupCalMs) {
     long r;
     bool timeout = false;
+
     if (readStable(r, timeout) && !isSaturated(r)) {
       sum += r;
       n++;
     }
+
     delay(20);
   }
 
@@ -35,6 +37,7 @@ bool SimpleHXLevel::begin(uint32_t startupCalMs) {
   _okCount = 0;
   _winInit = false;
   _softStartUntil = millis() + _softStartMs;
+  _lastGoodReadMs = millis();
 
   return (n > 0);
 }
@@ -83,13 +86,7 @@ bool SimpleHXLevel::isSaturated(long v) {
 }
 
 bool SimpleHXLevel::readStable(long &outRaw, bool &timeoutFlag) {
-  bool t1 = false, t2 = false, t3 = false;
-
-  (void)read24(t1);
-  (void)read24(t2);
-  uint32_t d = read24(t3);
-
-  timeoutFlag = (t1 || t2 || t3);
+  uint32_t d = read24(timeoutFlag);
   if (timeoutFlag) return false;
 
   outRaw = toSigned24(d);
@@ -134,17 +131,34 @@ bool SimpleHXLevel::update() {
   long raw = 0;
   bool timeout = false;
   bool okRead = readStable(raw, timeout);
-  _raw = raw;
+
+  if (okRead) {
+    _raw = raw;
+  }
 
   bool saturated = okRead && isSaturated(raw);
+  bool goodSample = okRead && !saturated;
 
-  if (!okRead) enterError(ERR_TIMEOUT);
-  else if (saturated) enterError(ERR_SATURATION);
+  // natychmiastowy błąd przy saturacji
+  if (saturated) {
+    enterError(ERR_SATURATION);
+  }
+
+  // poprawna próbka zeruje licznik braku danych
+  if (goodSample) {
+    _lastGoodReadMs = now;
+  } else {
+    // timeout dopiero po 1 sekundzie bez poprawnego odczytu
+    if ((uint32_t)(now - _lastGoodReadMs) >= _signalTimeoutMs) {
+      enterError(ERR_TIMEOUT);
+    }
+  }
 
   if (_latchedError) {
-    if (okRead && !saturated) {
+    if (goodSample) {
       long torque = raw - (long)_zeroF;
       _torqueF = _torqueF + _torqueAlpha * ((float)torque - _torqueF);
+
       long tAbs = absL((long)_torqueF);
       int lvl = level100(tAbs);
 
@@ -157,6 +171,12 @@ bool SimpleHXLevel::update() {
     }
 
     _level = 0;
+    return true;
+  }
+
+  // jeśli chwilowo nie ma próbki, ale nie minęła jeszcze 1 sekunda,
+  // to po prostu zostaw poprzedni stan i nie zgłaszaj błędu
+  if (!goodSample) {
     return true;
   }
 
@@ -215,7 +235,7 @@ SimpleHXLevel::ErrorCode SimpleHXLevel::getError() const {
 
 const char* SimpleHXLevel::getErrorText() const {
   switch (_error) {
-    case ERR_NONE:         return "NONE";
+    case ERR_NONE:         return "OK";
     case ERR_TIMEOUT:      return "TIMEOUT";
     case ERR_SATURATION:   return "SATURATION";
     case ERR_TORQUE_LIMIT: return "TORQUE_LIMIT";
