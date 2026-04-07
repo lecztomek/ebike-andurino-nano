@@ -470,17 +470,19 @@ void setup() {
   pinMode(walkAssistPin, INPUT_PULLUP);
   pinMode(pwmPin, OUTPUT);
 
-  attachInterrupt(digitalPinToInterrupt(pasPin), countPulse, CHANGE);
   delay(500);
 
   lcd.clear();
   lcd.print("HX init...");
-  if (!hx.begin(2000)) {
+  if (!hx.begin(3000)) {
     Serial.println("HX init failed");
     lcd.clear();
     lcd.print("HX init error");
     delay(1000);
   }
+
+  attachInterrupt(digitalPinToInterrupt(pasPin), countPulse, CHANGE);
+
 
   lastMillis = millis();
   lcd.clear();

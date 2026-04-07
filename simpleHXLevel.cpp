@@ -58,7 +58,10 @@ uint32_t SimpleHXLevel::read24(bool &timeoutFlag) {
   }
 
   uint32_t data = 0;
-  for (int i = 0; i < 24; i++) {
+
+  noInterrupts();
+
+  for (uint8_t i = 0; i < 24; i++) {
     digitalWrite(_sckPin, HIGH);
     delayMicroseconds(1);
     data = (data << 1) | (digitalRead(_dtPin) ? 1 : 0);
@@ -66,12 +69,14 @@ uint32_t SimpleHXLevel::read24(bool &timeoutFlag) {
     delayMicroseconds(1);
   }
 
-  for (int i = 0; i < _pulses; i++) {
+  for (uint8_t i = 0; i < _pulses; i++) {
     digitalWrite(_sckPin, HIGH);
     delayMicroseconds(1);
     digitalWrite(_sckPin, LOW);
     delayMicroseconds(1);
   }
+
+  interrupts();
 
   return data;
 }
