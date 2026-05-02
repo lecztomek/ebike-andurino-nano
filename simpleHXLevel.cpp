@@ -144,16 +144,11 @@ bool SimpleHXLevel::update() {
   bool saturated = okRead && isSaturated(raw);
   bool goodSample = okRead && !saturated;
 
-  // natychmiastowy błąd przy saturacji
   if (saturated) {
     enterError(ERR_SATURATION);
-  }
-
-  // poprawna próbka zeruje licznik braku danych
-  if (goodSample) {
+  } else if (goodSample) {
     _lastGoodReadMs = now;
   } else {
-    // timeout dopiero po 1 sekundzie bez poprawnego odczytu
     if ((uint32_t)(now - _lastGoodReadMs) >= _signalTimeoutMs) {
       enterError(ERR_TIMEOUT);
     }
@@ -164,8 +159,10 @@ bool SimpleHXLevel::update() {
       long torque = raw - (long)_zeroF;
       _torqueF = _torqueF + _torqueAlpha * ((float)torque - _torqueF);
 
-      long tAbs = absL((long)_torqueF);
-      int lvl = level100(tAbs);
+      long t = (long)_torqueF;
+      if (t < 0) t = 0;
+
+      int lvl = level100(t);
 
       if (lvl <= _recoverLevelMax) _okCount++;
       else _okCount = 0;
@@ -187,9 +184,13 @@ bool SimpleHXLevel::update() {
 
   long torque = raw - (long)_zeroF;
   _torqueF = _torqueF + _torqueAlpha * ((float)torque - _torqueF);
-  long tAbs = absL((long)_torqueF);
 
-  if (tAbs > _torqueMax) {
+  long t = (long)_torqueF;
+
+  // ujemne wartości nigdy nie dają poziomu
+  if (t < 0) t = 0;
+
+  if (t > _torqueMax) {
     enterError(ERR_TORQUE_LIMIT);
     return true;
   }
@@ -218,7 +219,7 @@ bool SimpleHXLevel::update() {
     _zeroF = _zeroF + _zeroAlphaRun * ((float)raw - _zeroF);
   }
 
-  _level = ((int32_t)(now - _softStartUntil) < 0) ? 0 : level100(tAbs);
+  _level = ((int32_t)(now - _softStartUntil) < 0) ? 0 : level100(t);
   return true;
 }
 
