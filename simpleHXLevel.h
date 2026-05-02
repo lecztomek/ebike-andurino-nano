@@ -46,7 +46,7 @@ private:
   long _dMax = 1000000;
 
   float _torqueAlpha = 0.25f;
-  float _zeroAlphaRun = 0.20f;
+  float _zeroAlphaRun = 0.005f;
 
   // czekanie na pojedynczą próbkę HX711
   uint32_t _readTimeoutMs = 150;
@@ -59,7 +59,7 @@ private:
   const long _satMargin = 2L;
 
   long _torqueMax = 700000L;
-  long _jitterMax = 120000L;
+  long _jitterMax = 150000L;
 
   uint16_t _okRequired = 10;
   int _recoverLevelMax = 2;

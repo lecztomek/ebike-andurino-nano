@@ -180,6 +180,8 @@ public:
 //VirtualLCD lcd;
 LCDIC2 lcd(0x27, 16, 2);
 
+const byte totalScreens = 7;
+byte currentScreen = 0;
 ScreenDisplayState displayState;
 
 const uint8_t hxDtPin  = A1;
@@ -193,8 +195,6 @@ bool hxError = false;
 const char* hxErrorText = "OK";
 
 bool serialWalkPressed = false;
-const byte totalScreens = 5;
-byte currentScreen = 0;
 
 const int pasPin = 2;
 const int assistUpPin = 3;
@@ -212,7 +212,7 @@ const byte bufferSize = 20;                 // Number of samples in the sliding 
 byte pulseBuffer[bufferSize];               // Circular buffer holding recent pulse states (1 = pulse, 0 = no pulse)
 byte bufferIndex = 0;
 
-unsigned long sampleInterval = 50;    // Sampling period in milliseconds
+unsigned int sampleInterval = 50;    // Sampling period in milliseconds
 unsigned long lastSampleTime = 0;
 
 volatile bool pulseDetected = false;        // Flag set by interrupt if a PAS pulse was detected
@@ -255,8 +255,39 @@ bool lastInSettingsMode = false;
 byte currentSettingIndex = 0;
 unsigned long lastSetButtonPress = 0;
 const unsigned long longPressTime = 1500;
-const byte totalSettings = 12;
+const byte totalSettings = 20;
 // ----------------------
+
+bool hxZeroingEnabled = false;
+
+enum AssistAlgorithm : uint8_t {
+  ASSIST_STANDARD = 0,
+  ASSIST_TORQUE   = 1,
+  ASSIST_HYBRID   = 2
+};
+
+uint8_t assistMode = ASSIST_STANDARD;
+
+// --- Hybrid Mode ---
+const int hybridCorrectionMax = 4;              // maksymalna korekta: base +/- 4%
+
+byte hybridLightHX = 5;                         // lekko
+byte hybridNeutralHX = 10;                      // normalnie
+byte hybridHeavyHX = 15;                        // ciężko
+
+const int hybridCorrectionUpStepPerUpdate = 1;    // dokładanie mocy: wolniej, +1% co updateInterval
+const int hybridCorrectionDownStepPerUpdate = 2;  // odejmowanie mocy: szybciej, -2% co updateInterval
+
+
+int hybridCorrection = 0;                       // aktualna korekta -4..+4
+int hybridBasePower = 0;                        // baza narastająca według rampTime
+// -------------------
+
+// --- Torque Mode ---
+byte torqueStartLevel1HX = 20;       // poziom 1 -> trzeba mocno nacisnąć
+byte torqueStartMaxLevelHX = 5;      // poziom max -> lekki nacisk
+byte torqueStopHysteresis = 2;       // stopTh = startTh - hysteresis
+// -------------------
 
 void saveSettingsToEEPROM() {
   EEPROM.put(0, pulsesPerRevolution);
@@ -271,6 +302,14 @@ void saveSettingsToEEPROM() {
   EEPROM.put(20, pwmIdleVoltInt);
   EEPROM.put(22, supplyVoltageInt);
   EEPROM.put(24, currentScreen);
+  EEPROM.put(25, hxZeroingEnabled);
+  EEPROM.put(26, assistMode);
+  EEPROM.put(27, hybridLightHX);
+  EEPROM.put(28, hybridNeutralHX);
+  EEPROM.put(29, hybridHeavyHX);
+  EEPROM.put(30, torqueStartLevel1HX);
+  EEPROM.put(31, torqueStartMaxLevelHX);
+  EEPROM.put(32, torqueStopHysteresis);
 }
 
 void loadSettingsFromEEPROM() {
@@ -308,7 +347,49 @@ void loadSettingsFromEEPROM() {
   if (supplyVoltageInt < 300 || supplyVoltageInt > 600) supplyVoltageInt = 500;
 
   EEPROM.get(24, currentScreen);
-if (currentScreen >= totalScreens) currentScreen = 0;
+  if (currentScreen >= totalScreens) currentScreen = 0;
+
+  EEPROM.get(25, hxZeroingEnabled);
+
+  EEPROM.get(26, assistMode);
+  if (assistMode > ASSIST_HYBRID) assistMode = ASSIST_STANDARD;
+
+  EEPROM.get(27, hybridLightHX);
+  EEPROM.get(28, hybridNeutralHX);
+  EEPROM.get(29, hybridHeavyHX);
+
+  if (hybridLightHX > 100) hybridLightHX = 5;
+  if (hybridNeutralHX > 100) hybridNeutralHX = 15;
+  if (hybridHeavyHX > 100) hybridHeavyHX = 35;
+
+  // pilnujemy kolejności: light < neutral < heavy
+  if (hybridLightHX >= hybridNeutralHX || hybridNeutralHX >= hybridHeavyHX) {
+    hybridLightHX = 5;
+    hybridNeutralHX = 10;
+    hybridHeavyHX = 15;
+  }
+
+  EEPROM.get(30, torqueStartLevel1HX);
+  EEPROM.get(31, torqueStartMaxLevelHX);
+  EEPROM.get(32, torqueStopHysteresis);
+
+  if (torqueStartLevel1HX < 1 || torqueStartLevel1HX > 100) {
+    torqueStartLevel1HX = 20;
+  }
+
+  if (torqueStartMaxLevelHX < 1 || torqueStartMaxLevelHX > 100) {
+    torqueStartMaxLevelHX = 5;
+  }
+
+  if (torqueStopHysteresis < 1 || torqueStopHysteresis > 20) {
+    torqueStopHysteresis = 2;
+  }
+
+  // pilnujemy, żeby poziom 1 miał wyższy próg niż poziom max
+  if (torqueStartLevel1HX <= torqueStartMaxLevelHX) {
+    torqueStartLevel1HX = 20;
+    torqueStartMaxLevelHX = 5;
+  }
 }
 
 byte getAssistPercentage(byte level) {
@@ -507,6 +588,8 @@ void loop() {
     }
   }else{
     assistPower = 0;
+    hybridBasePower = 0;
+    hybridCorrection = 0;
     updatePWM();
   }
 
@@ -514,7 +597,7 @@ void loop() {
 }
 
 void updateHXSensor() {
-  bool shouldZero = (rpm == 0);
+  bool shouldZero = hxZeroingEnabled && (rpm == 0);
 
   hx.setZeroing(shouldZero);
   hx.update();
@@ -597,7 +680,166 @@ void updateAssistLevel() {
   }
 }
 
+int getTorqueStartThreshold() {
+  if (currentAssistLevel == 0) return 101;
+
+  byte level = currentAssistLevel;
+
+  if (level < 1) level = 1;
+  if (level > numAssistLevels) level = numAssistLevels;
+
+  float k = 0.0f;
+
+  if (numAssistLevels > 1) {
+    k = (float)(level - 1) / (float)(numAssistLevels - 1);
+  }
+
+  // poziom 1 -> torqueStartLevel1HX
+  // poziom max -> torqueStartMaxLevelHX
+  int startTh = (int)(
+    torqueStartLevel1HX -
+    ((float)(torqueStartLevel1HX - torqueStartMaxLevelHX) * k) +
+    0.5f
+  );
+
+  if (startTh < torqueStartMaxLevelHX) startTh = torqueStartMaxLevelHX;
+  if (startTh > torqueStartLevel1HX) startTh = torqueStartLevel1HX;
+
+  return startTh;
+}
+
+int getTorqueStopThreshold() {
+  int stopTh = getTorqueStartThreshold() - torqueStopHysteresis;
+
+  if (stopTh < 0) stopTh = 0;
+  return stopTh;
+}
+
 void calculateAssist() {
+  switch (assistMode) {
+    case ASSIST_TORQUE:
+      calculateAssistTorque();
+      break;
+
+    case ASSIST_HYBRID:
+      calculateAssistHybrid();
+      break;
+
+    case ASSIST_STANDARD:
+    default:
+      calculateAssistStandard();
+      break;
+  }
+}
+
+int moveTowardIntAsym(int current, int target, int upStep, int downStep) {
+  if (current < target) {
+    current += upStep;
+    if (current > target) current = target;
+  } 
+  else if (current > target) {
+    current -= downStep;
+    if (current < target) current = target;
+  }
+
+  return current;
+}
+
+int getHybridTargetCorrection() {
+  if (hxError) {
+    return 0;
+  }
+
+  if (hxLevel <= hybridLightHX) {
+    return -hybridCorrectionMax;
+  }
+
+  if (hxLevel >= hybridHeavyHX) {
+    return hybridCorrectionMax;
+  }
+
+  if (hxLevel < hybridNeutralHX) {
+    return map(
+      hxLevel,
+      hybridLightHX,
+      hybridNeutralHX,
+      -hybridCorrectionMax,
+      0
+    );
+  }
+
+  return map(
+    hxLevel,
+    hybridNeutralHX,
+    hybridHeavyHX,
+    0,
+    hybridCorrectionMax
+  );
+}
+
+void updateHybridBasePower(int baseAssist) {
+  if (hybridBasePower < baseAssist) {
+    int step = (baseAssist * updateInterval) / rampTime;
+
+    // zabezpieczenie, żeby przy długim rampTime step nie wyszedł 0
+    if (step < 1) step = 1;
+
+    hybridBasePower += step;
+
+    if (hybridBasePower > baseAssist) {
+      hybridBasePower = baseAssist;
+    }
+  } 
+  else if (hybridBasePower > baseAssist) {
+    // tak jak w STANDARD — po zmniejszeniu poziomu nie czekamy na rampę w dół
+    hybridBasePower = baseAssist;
+  }
+}
+void calculateAssistHybrid() {
+  unsigned long now = millis();
+
+  if (walkingAssistActive) return;
+  if (now - lastUpdate < updateInterval) return;
+
+  lastUpdate = now;
+
+  if (currentAssistLevel == 0 || rpm < minRPM) {
+    assistPower = 0;
+    hybridBasePower = 0;
+    hybridCorrection = 0;
+    return;
+  }
+
+  int baseAssist = targetAssist;
+
+  // 1. Baza działa jak STANDARD, czyli narasta według rampTime
+  updateHybridBasePower(baseAssist);
+
+  // 2. Korekta torque działa osobno
+  if (hxError) {
+    // Błąd HX: torque przestaje działać, zostaje sama baza
+    hybridCorrection = 0;
+  } else {
+    int targetCorrection = getHybridTargetCorrection();
+
+    hybridCorrection = moveTowardIntAsym(
+      hybridCorrection,
+      targetCorrection,
+      hybridCorrectionUpStepPerUpdate,
+      hybridCorrectionDownStepPerUpdate
+    );
+  }
+
+  // 3. Wynik końcowy = baza + korekta
+  int finalPower = hybridBasePower + hybridCorrection;
+
+  if (finalPower < 0) finalPower = 0;
+  if (finalPower > 100) finalPower = 100;
+
+  assistPower = finalPower;
+}
+
+void calculateAssistStandard() {
   unsigned long now = millis();
 
   if (walkingAssistActive) return; 
@@ -613,6 +855,40 @@ void calculateAssist() {
 } else {
     assistPower = 0;
   }
+}
+
+void calculateAssistTorque() {
+  unsigned long now = millis();
+
+  if (walkingAssistActive) return;
+  if (now - lastUpdate < updateInterval) return;
+
+  lastUpdate = now;
+
+  if (currentAssistLevel == 0 || rpm < minRPM || hxError) {
+    assistPower = 0;
+    return;
+  }
+
+  int startTh = getTorqueStartThreshold();
+  int stopTh  = getTorqueStopThreshold();
+
+  const int torqueMaxPower = 100;
+
+  // max wzrost: +1 co 100 ms = 10% na sekundę
+  if (hxLevel > startTh) {
+    if (assistPower < torqueMaxPower) {
+      assistPower += 1;
+      if (assistPower > torqueMaxPower) assistPower = torqueMaxPower;
+    }
+  }
+  // spadek szybszy przy slabym nacisku
+  else if (hxLevel < stopTh) {
+    if (assistPower >= 2) assistPower -= 2;
+    else assistPower = 0;
+  }
+
+  if (assistPower > torqueMaxPower) assistPower = torqueMaxPower;
 }
 
 void calculateRPM() {
@@ -724,58 +1000,130 @@ void changeSetting(bool increase) {
       break;
 
     case 1:
+      assistMode++;
+      if (assistMode > ASSIST_HYBRID) assistMode = ASSIST_STANDARD;
+      break;
+
+    case 2:
+      hxZeroingEnabled = !hxZeroingEnabled;
+      break;
+
+    case 3:
       if (increase) pulsesPerRevolution++;
       else if (pulsesPerRevolution > 1) pulsesPerRevolution--;
       break;
 
-    case 2:
+    case 4:
       if (increase && walkingAssistPower < 100) walkingAssistPower++;
       else if (!increase && walkingAssistPower > 1) walkingAssistPower--;
       break;
 
-    case 3:
+    case 5:
       if (increase) walkingDelay += 500;
       else if (walkingDelay >= 1000) walkingDelay -= 500;
       break;
 
-    case 4:
+    case 6:
       if (increase) minRPM++;
       else if (minRPM > 0) minRPM--;
       break;
 
-    case 5:
+    case 7:
       if (increase) rampTime += 200;
       else if (rampTime >= 400) rampTime -= 200;
       break;
 
-    case 6:
-      if (increase && numAssistLevels < 20) numAssistLevels++;
-      else if (!increase && numAssistLevels > 1) numAssistLevels--;
+    case 8:
+      if (increase && numAssistLevels < 20) {
+        numAssistLevels++;
+      } else if (!increase && numAssistLevels > 1) {
+        numAssistLevels--;
+      }
+
+      if (currentAssistLevel > numAssistLevels) {
+        currentAssistLevel = numAssistLevels;
+      }
+
+      targetAssist = getAssistPercentage(currentAssistLevel);
       break;
 
-    case 7:
+    case 9:
       if (increase && sampleInterval < 500) sampleInterval += 10;
       else if (!increase && sampleInterval >= 20) sampleInterval -= 10;
       break;
 
-    case 8:
+    case 10:
       if (increase && pwmMinVoltInt < 490) pwmMinVoltInt += 10;
       else if (!increase && pwmMinVoltInt > 10) pwmMinVoltInt -= 10;
       break;
 
-    case 9:
+    case 11:
       if (increase && pwmMaxVoltInt < 500) pwmMaxVoltInt += 10;
       else if (!increase && pwmMaxVoltInt > pwmMinVoltInt + 10) pwmMaxVoltInt -= 10;
       break;
 
-    case 10:
+    case 12:
       if (increase && pwmIdleVoltInt < 500) pwmIdleVoltInt += 10;
       else if (!increase && pwmIdleVoltInt > pwmMinVoltInt + 10) pwmIdleVoltInt -= 10;
       break;
 
-    case 11:
+    case 13:
       if (increase && supplyVoltageInt < 500) supplyVoltageInt += 10;
       else if (!increase && supplyVoltageInt > 300) supplyVoltageInt -= 10;
+      break;
+
+    case 14:
+      // Hybrid Light HX
+      if (increase && hybridLightHX < hybridNeutralHX - 1) {
+        hybridLightHX++;
+      } else if (!increase && hybridLightHX > 0) {
+        hybridLightHX--;
+      }
+      break;
+
+    case 15:
+      // Hybrid Neutral HX
+      if (increase && hybridNeutralHX < hybridHeavyHX - 1) {
+        hybridNeutralHX++;
+      } else if (!increase && hybridNeutralHX > hybridLightHX + 1) {
+        hybridNeutralHX--;
+      }
+      break;
+
+    case 16:
+      // Hybrid Heavy HX
+      if (increase && hybridHeavyHX < 100) {
+        hybridHeavyHX++;
+      } else if (!increase && hybridHeavyHX > hybridNeutralHX + 1) {
+        hybridHeavyHX--;
+      }
+      break;
+
+    case 17:
+      // Torque Level 1 HX
+      if (increase && torqueStartLevel1HX < 100) {
+        torqueStartLevel1HX++;
+      } else if (!increase && torqueStartLevel1HX > torqueStartMaxLevelHX + 1) {
+        torqueStartLevel1HX--;
+      }
+      break;
+
+    case 18:
+      // Torque Max Level HX
+      if (increase && torqueStartMaxLevelHX < torqueStartLevel1HX - 1) {
+        torqueStartMaxLevelHX++;
+      } else if (!increase && torqueStartMaxLevelHX > 1) {
+        torqueStartMaxLevelHX--;
+      }
+      break;
+
+    case 19:
+      // Torque hysteresis
+      if (increase && torqueStopHysteresis < 20) {
+        torqueStopHysteresis++;
+      } else if (!increase && torqueStopHysteresis > 1) {
+        torqueStopHysteresis--;
+      }
       break;
   }
 }
@@ -795,58 +1143,106 @@ void showCurrentSetting() {
       break;
 
     case 1:
+      line0 = "Assist Mode:";
+
+      if (assistMode == ASSIST_STANDARD) {
+        line1 = "STANDARD";
+      } else if (assistMode == ASSIST_TORQUE) {
+        line1 = "TORQUE";
+      } else if (assistMode == ASSIST_HYBRID) {
+        line1 = "HYBRID";
+      }
+
+      break;
+
+    case 2:
+      line0 = "HX Zeroing:";
+      line1 = hxZeroingEnabled ? "ON" : "OFF";
+      break;
+
+    case 3:
       line0 = "NumOf Magnetics:";
       line1 = String(pulsesPerRevolution);
       break;
 
-    case 2:
+    case 4:
       line0 = "Walk Asst [%]:";
       line1 = String(walkingAssistPower);
       break;
 
-    case 3:
+    case 5:
       line0 = "WalkDelay [ms]:";
       line1 = String(walkingDelay);
       break;
 
-    case 4:
+    case 6:
       line0 = "Min RPM:";
       line1 = String(minRPM);
       break;
 
-    case 5:
+    case 7:
       line0 = "RampTime [ms]:";
       line1 = String(rampTime);
       break;
 
-    case 6:
+    case 8:
       line0 = "Asst Levels:";
       line1 = String(numAssistLevels);
       break;
 
-    case 7:
+    case 9:
       line0 = "RPMIntval [ms]:";
       line1 = String(sampleInterval);
       break;
 
-    case 8:
+    case 10:
       line0 = "PWM Min Volt:";
       line1 = String(pwmMinVoltInt / 100.0, 1) + " V";
       break;
 
-    case 9:
+    case 11:
       line0 = "PWM Max Volt:";
       line1 = String(pwmMaxVoltInt / 100.0, 1) + " V";
       break;
 
-    case 10:
+    case 12:
       line0 = "PWM Idle Volt:";
       line1 = String(pwmIdleVoltInt / 100.0, 1) + " V";
       break;
 
-    case 11:
+    case 13:
       line0 = "Supply Volt:";
       line1 = String(supplyVoltageInt / 100.0, 2) + " V";
+      break;
+
+    case 14:
+      line0 = "Hyb Light HX:";
+      line1 = String(hybridLightHX);
+      break;
+
+    case 15:
+      line0 = "Hyb Neutral HX:";
+      line1 = String(hybridNeutralHX);
+      break;
+
+    case 16:
+      line0 = "Hyb Heavy HX:";
+      line1 = String(hybridHeavyHX);
+      break;
+
+    case 17:
+      line0 = "Torq L1 HX:";
+      line1 = String(torqueStartLevel1HX);
+      break;
+
+    case 18:
+      line0 = "Torq Max HX:";
+      line1 = String(torqueStartMaxLevelHX);
+      break;
+
+    case 19:
+      line0 = "Torq Hyst:";
+      line1 = String(torqueStopHysteresis);
       break;
   }
 

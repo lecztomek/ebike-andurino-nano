@@ -13,7 +13,7 @@ bool SimpleHXLevel::begin(uint32_t startupCalMs) {
   digitalWrite(_sckPin, LOW);
   pinMode(_dtPin, INPUT);
 
-  long sum = 0;
+  int64_t sum = 0;
   int n = 0;
   uint32_t t0 = millis();
 
@@ -29,7 +29,7 @@ bool SimpleHXLevel::begin(uint32_t startupCalMs) {
     delay(20);
   }
 
-  _zeroF = (n > 0) ? (float)(sum / n) : 0.0f;
+  _zeroF = (n > 0) ? ((float)sum / (float)n) : 0.0f;
   _torqueF = 0.0f;
   _level = 0;
   _latchedError = false;
@@ -194,31 +194,31 @@ bool SimpleHXLevel::update() {
     return true;
   }
 
-  if (!_winInit) {
-    _winMin = (long)_torqueF;
-    _winMax = (long)_torqueF;
-    _winInit = true;
-    _winStart = now;
-  }
+  // if (!_winInit) {
+  //   _winMin = (long)_torqueF;
+  //   _winMax = (long)_torqueF;
+  //   _winInit = true;
+  //   _winStart = now;
+  // }
 
-  if ((long)_torqueF < _winMin) _winMin = (long)_torqueF;
-  if ((long)_torqueF > _winMax) _winMax = (long)_torqueF;
+  // if ((long)_torqueF < _winMin) _winMin = (long)_torqueF;
+  // if ((long)_torqueF > _winMax) _winMax = (long)_torqueF;
 
-  if ((uint32_t)(now - _winStart) >= 1000) {
-    long pp = _winMax - _winMin;
-    if (pp > _jitterMax) {
-      enterError(ERR_JITTER);
-      return true;
-    }
-    _winStart = now;
-    _winInit = false;
-  }
+  // if ((uint32_t)(now - _winStart) >= 1000) {
+  //   long pp = _winMax - _winMin;
+  //   if (pp > _jitterMax) {
+  //     enterError(ERR_JITTER);
+  //     return true;
+  //   }
+  //   _winStart = now;
+  //   _winInit = false;
+  // }
 
   if (_zeroing) {
     _zeroF = _zeroF + _zeroAlphaRun * ((float)raw - _zeroF);
   }
 
-  _level = (millis() < _softStartUntil) ? 0 : level100(tAbs);
+  _level = ((int32_t)(now - _softStartUntil) < 0) ? 0 : level100(tAbs);
   return true;
 }
 

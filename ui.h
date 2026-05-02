@@ -61,6 +61,20 @@ static void uiPrintBigDigit2x2(TLcd& lcd, byte startCol, const uint8_t tiles[4])
 }
 
 template <typename TLcd>
+static void uiPrintBig2DigitValue(TLcd& lcd, byte startCol, unsigned int value) {
+  if (value > 99) value = 99;
+
+  byte tens = value / 10;
+  byte ones = value % 10;
+
+  const uint8_t* leftDigit  = (value >= 10) ? UI_BIG_TRON_DIGITS[tens] : UI_BIG_TRON_DIGITS[10]; // blank
+  const uint8_t* rightDigit = UI_BIG_TRON_DIGITS[ones];
+
+  uiPrintBigDigit2x2(lcd, startCol + 0, leftDigit);
+  uiPrintBigDigit2x2(lcd, startCol + 3, rightDigit);
+}
+
+template <typename TLcd>
 static void uiRenderBigValueScreen(TLcd& lcd, const char* label, unsigned int value) {
   uiLoadBigTronFont(lcd);
   lcd.clear();
@@ -140,11 +154,6 @@ static void uiRenderScreen4HXLevelBig(
   // lewa strona - status
   lcd.setCursor(0, 0);
   lcd.print("LEVEL");
-  //if (hxError) {
-  //  lcd.print("ST:ERR");
-  //} else {
-  //  lcd.print("ST:OK ");
-  //}
 
   char shortStatus[8];
   snprintf(shortStatus, sizeof(shortStatus), "%.7s", safeStatus);
@@ -188,6 +197,55 @@ static void uiRenderScreen4HXLevelBig(
       UI_BIG_TRON_DIGITS[digit]
     );
   }
+}
+
+template <typename TLcd>
+static void uiRenderScreen5TargetVsAssistPower(
+  TLcd& lcd,
+  unsigned int targetAssist,
+  unsigned int assistPower
+) {
+  uiLoadBigTronFont(lcd);
+  lcd.clear();
+
+  // lewa wielka liczba: targetAssist
+  uiPrintBig2DigitValue(lcd, 0, targetAssist);
+
+  // srodek male napisy
+  lcd.setCursor(5, 0);
+  lcd.print("<-tgtA");
+
+  lcd.setCursor(5, 1);
+  lcd.print("asst->");
+
+  // prawa wielka liczba: assistPower
+  uiPrintBig2DigitValue(lcd, 11, assistPower);
+}
+
+template <typename TLcd>
+static void uiRenderScreen6HxLevelVsAssistPower(
+  TLcd& lcd,
+  int hxLevel,
+  unsigned int assistPower
+) {
+  uiLoadBigTronFont(lcd);
+  lcd.clear();
+
+  if (hxLevel < 0) hxLevel = 0;
+  if (hxLevel > 99) hxLevel = 99;
+
+  // lewa wielka liczba: hxLevel
+  uiPrintBig2DigitValue(lcd, 0, (unsigned int)hxLevel);
+
+  // srodek male napisy
+  lcd.setCursor(5, 0);
+  lcd.print("<-lvl ");
+
+  lcd.setCursor(5, 1);
+  lcd.print("asst->");
+
+  // prawa wielka liczba: assistPower
+  uiPrintBig2DigitValue(lcd, 11, assistPower);
 }
 
 template <typename TLcd>
@@ -239,12 +297,18 @@ void renderScreen(
   // 2 = big ASSIST
   // 3 = big RPM
   // 4 = big HX LEVEL + status
+  // 5 = big TARGET vs ASSIST POWER
+  // 6 = big HX LEVEL vs ASSIST POWER
   if (currentScreen == 2) {
     uiRenderScreen2TA(lcd, targetAssist);
   } else if (currentScreen == 3) {
     uiRenderScreen3RPM(lcd, rpm);
   } else if (currentScreen == 4) {
     uiRenderScreen4HXLevelBig(lcd, hxLevel, hxError, safeHxStatusText);
+  } else if (currentScreen == 5) {
+    uiRenderScreen5TargetVsAssistPower(lcd, targetAssist, assistPower);
+  } else if (currentScreen == 6) {
+    uiRenderScreen6HxLevelVsAssistPower(lcd, hxLevel, assistPower);
   } else {
     char line1[17];
     char line2[17];
