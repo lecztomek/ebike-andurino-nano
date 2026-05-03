@@ -237,7 +237,7 @@ volatile unsigned int pulseCount = 0;
 unsigned int rpm = 0;               
 unsigned int minRPM = 31;         
 unsigned int targetAssist = 0;     
-unsigned int assistPower = 0;      
+float assistPower = 0;      
 unsigned long lastUpdate = 0;
 
 unsigned long rampTime = 1000;  
@@ -255,7 +255,7 @@ bool lastInSettingsMode = false;
 byte currentSettingIndex = 0;
 unsigned long lastSetButtonPress = 0;
 const unsigned long longPressTime = 1500;
-const byte totalSettings = 20;
+const byte totalSettings = 22;
 // ----------------------
 
 bool hxZeroingEnabled = false;
@@ -268,12 +268,15 @@ enum AssistAlgorithm : uint8_t {
 
 uint8_t assistMode = ASSIST_STANDARD;
 
+byte torqueAssistRiseStep = 10;   // narastanie assistPower w TORQUE
+byte torqueAssistFallStep = 20;   // opadanie assistPower w TORQUE
+
 // --- Hybrid Mode ---
 const int hybridCorrectionMax = 4;              // maksymalna korekta: base +/- 4%
 
-byte hybridLightHX = 5;                         // lekko
-byte hybridNeutralHX = 10;                      // normalnie
-byte hybridHeavyHX = 15;                        // ciężko
+byte hybridLightHX = 10;                         // lekko
+byte hybridNeutralHX = 20;                      // normalnie
+byte hybridHeavyHX = 30;                        // ciężko
 
 const int hybridCorrectionUpStepPerUpdate = 1;    // dokładanie mocy: wolniej, +1% co updateInterval
 const int hybridCorrectionDownStepPerUpdate = 2;  // odejmowanie mocy: szybciej, -2% co updateInterval
@@ -284,9 +287,9 @@ int hybridBasePower = 0;                        // baza narastająca według ram
 // -------------------
 
 // --- Torque Mode ---
-byte torqueStartLevel1HX = 20;       // poziom 1 -> trzeba mocno nacisnąć
-byte torqueStartMaxLevelHX = 5;      // poziom max -> lekki nacisk
-byte torqueStopHysteresis = 2;       // stopTh = startTh - hysteresis
+byte torqueStartLevel1HX = 40;       // poziom 1 -> trzeba mocno nacisnąć
+byte torqueStartMaxLevelHX = 10;      // poziom max -> lekki nacisk
+byte torqueStopHysteresis = 4;       // stopTh = startTh - hysteresis
 // -------------------
 
 void saveSettingsToEEPROM() {
@@ -310,6 +313,8 @@ void saveSettingsToEEPROM() {
   EEPROM.put(30, torqueStartLevel1HX);
   EEPROM.put(31, torqueStartMaxLevelHX);
   EEPROM.put(32, torqueStopHysteresis);
+  EEPROM.put(33, torqueAssistRiseStep);
+  EEPROM.put(34, torqueAssistFallStep);
 }
 
 void loadSettingsFromEEPROM() {
@@ -389,6 +394,17 @@ void loadSettingsFromEEPROM() {
   if (torqueStartLevel1HX <= torqueStartMaxLevelHX) {
     torqueStartLevel1HX = 20;
     torqueStartMaxLevelHX = 5;
+  }
+
+  EEPROM.get(33, torqueAssistRiseStep);
+  EEPROM.get(34, torqueAssistFallStep);
+
+  if (torqueAssistRiseStep < 1 || torqueAssistRiseStep > 200) {
+    torqueAssistRiseStep = 10;
+  }
+
+  if (torqueAssistFallStep < 1 || torqueAssistFallStep > 200) {
+    torqueAssistFallStep = 20;
   }
 }
 
@@ -616,9 +632,8 @@ void updatePWM() {
   byte pwmValue = pwmIdleVal;
 
   if (assistPower > 0) {
-    pwmValue = map(assistPower, 0, 100, pwmMinVal, pwmMaxVal);
+    pwmValue = map((int)(assistPower + 0.5f), 0, 100, pwmMinVal, pwmMaxVal);
   }
-
   analogWrite(pwmPin, pwmValue);
 }
 
@@ -875,17 +890,21 @@ void calculateAssistTorque() {
 
   const int torqueMaxPower = 100;
 
-  // max wzrost: +1 co 100 ms = 10% na sekundę
   if (hxLevel > startTh) {
     if (assistPower < torqueMaxPower) {
-      assistPower += 1;
-      if (assistPower > torqueMaxPower) assistPower = torqueMaxPower;
+      assistPower += torqueAssistRiseStep / 10.0f;
+
+      if (assistPower > torqueMaxPower) {
+        assistPower = torqueMaxPower;
+      }
     }
   }
-  // spadek szybszy przy slabym nacisku
   else if (hxLevel < stopTh) {
-    if (assistPower >= 2) assistPower -= 2;
-    else assistPower = 0;
+    if (assistPower > torqueAssistFallStep / 10.0f) {
+      assistPower -= torqueAssistFallStep / 10.0f;
+    } else {
+      assistPower = 0;
+    }
   }
 
   if (assistPower > torqueMaxPower) assistPower = torqueMaxPower;
@@ -918,7 +937,7 @@ void showOnDisplay(bool refreshNow) {
     refreshNow,
     rpm,
     targetAssist,
-    assistPower,
+    (int)(assistPower + 0.5f),
     walkingAssistActive,
     hxLevel,
     hxTorque,
@@ -1125,6 +1144,25 @@ void changeSetting(bool increase) {
         torqueStopHysteresis--;
       }
       break;
+
+    case 20:
+      // Torque assist rise step
+      if (increase && torqueAssistRiseStep < 200) {
+        torqueAssistRiseStep++;
+      } else if (!increase && torqueAssistRiseStep > 1) {
+        torqueAssistRiseStep--;
+      }
+      break;
+
+    case 21:
+      // Torque assist fall step
+      if (increase && torqueAssistFallStep < 200) {
+        torqueAssistFallStep++;
+      } else if (!increase && torqueAssistFallStep > 1) {
+        torqueAssistFallStep--;
+      }
+      break;
+
   }
 }
 
@@ -1243,6 +1281,16 @@ void showCurrentSetting() {
     case 19:
       line0 = "Torq Hyst:";
       line1 = String(torqueStopHysteresis);
+      break;
+
+    case 20:
+      line0 = "Torq Rise:";
+      line1 = String(torqueAssistRiseStep);
+      break;
+
+    case 21:
+      line0 = "Torq Fall:";
+      line1 = String(torqueAssistFallStep);
       break;
   }
 

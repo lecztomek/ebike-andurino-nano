@@ -203,20 +203,22 @@ template <typename TLcd>
 static void uiRenderScreen5TargetVsAssistPower(
   TLcd& lcd,
   unsigned int targetAssist,
-  unsigned int assistPower
+  unsigned int assistPower,
+  bool firstDraw
 ) {
-  uiLoadBigTronFont(lcd);
-  lcd.clear();
+  if (firstDraw) {
+    uiLoadBigTronFont(lcd);
+    lcd.clear();
+
+    lcd.setCursor(5, 0);
+    lcd.print("<-tgtA");
+
+    lcd.setCursor(5, 1);
+    lcd.print("asst->");
+  }
 
   // lewa wielka liczba: targetAssist
   uiPrintBig2DigitValue(lcd, 0, targetAssist);
-
-  // srodek male napisy
-  lcd.setCursor(5, 0);
-  lcd.print("<-tgtA");
-
-  lcd.setCursor(5, 1);
-  lcd.print("asst->");
 
   // prawa wielka liczba: assistPower
   uiPrintBig2DigitValue(lcd, 11, assistPower);
@@ -226,25 +228,24 @@ template <typename TLcd>
 static void uiRenderScreen6HxLevelVsAssistPower(
   TLcd& lcd,
   int hxLevel,
-  unsigned int assistPower
+  unsigned int assistPower,
+  bool firstDraw
 ) {
-  uiLoadBigTronFont(lcd);
-  lcd.clear();
+  if (firstDraw) {
+    uiLoadBigTronFont(lcd);
+    lcd.clear();
+
+    lcd.setCursor(5, 0);
+    lcd.print("<-lvl ");
+
+    lcd.setCursor(5, 1);
+    lcd.print("asst->");
+  }
 
   if (hxLevel < 0) hxLevel = 0;
   if (hxLevel > 99) hxLevel = 99;
 
-  // lewa wielka liczba: hxLevel
   uiPrintBig2DigitValue(lcd, 0, (unsigned int)hxLevel);
-
-  // srodek male napisy
-  lcd.setCursor(5, 0);
-  lcd.print("<-lvl ");
-
-  lcd.setCursor(5, 1);
-  lcd.print("asst->");
-
-  // prawa wielka liczba: assistPower
   uiPrintBig2DigitValue(lcd, 11, assistPower);
 }
 
@@ -306,9 +307,19 @@ void renderScreen(
   } else if (currentScreen == 4) {
     uiRenderScreen4HXLevelBig(lcd, hxLevel, hxError, safeHxStatusText);
   } else if (currentScreen == 5) {
-    uiRenderScreen5TargetVsAssistPower(lcd, targetAssist, assistPower);
+    uiRenderScreen5TargetVsAssistPower(
+      lcd,
+      targetAssist,
+      assistPower,
+      screenChanged
+    );
   } else if (currentScreen == 6) {
-    uiRenderScreen6HxLevelVsAssistPower(lcd, hxLevel, assistPower);
+    uiRenderScreen6HxLevelVsAssistPower(
+      lcd,
+      hxLevel,
+      assistPower,
+      screenChanged
+    );
   } else {
     char line1[17];
     char line2[17];

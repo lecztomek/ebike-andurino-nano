@@ -43,7 +43,7 @@ private:
 
   // ustawienia z Twojego programu
   long _dMin = 2500;
-  long _dMax = 1000000;
+  long _dMax = 500000;
 
   float _torqueAlpha = 0.25f;
   float _zeroAlphaRun = 0.005f;
